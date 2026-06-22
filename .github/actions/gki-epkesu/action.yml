@@ -34,8 +34,10 @@ runs:
 
         DRIVER_MAKEFILE="$DRIVER_DIR/Makefile"
         DRIVER_KCONFIG="$DRIVER_DIR/Kconfig"
+        KSU_DRIVER_DIR="$DRIVER_DIR/kernelsu"
 
-        ln -sfn "$(realpath --relative-to="$DRIVER_DIR" "$EPKESU_ROOT/kernel")" "$DRIVER_DIR/kernelsu"
+        ln -sfn "$(realpath --relative-to="$DRIVER_DIR" "$EPKESU_ROOT/kernel")" "$KSU_DRIVER_DIR"
+        ln -sfn "$(realpath --relative-to="$KSU_DRIVER_DIR" "$EPKESU_ROOT/uapi")" "$KSU_DRIVER_DIR/uapi"
         grep -q 'obj-$(CONFIG_KSU) += kernelsu/' "$DRIVER_MAKEFILE" || \
           printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> "$DRIVER_MAKEFILE"
         grep -q 'source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG" || \
