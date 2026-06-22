@@ -46,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout EpkeSU
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -124,6 +124,8 @@ jobs:
 
       - name: Setup EpkeSU
         uses: ./.github/actions/gki-epkesu
+        with:
+          enable_susfs: ${{ contains(inputs.feature_set, 'SUSFS') }}
 
       - name: Setup SUSFS
         if: ${{ contains(inputs.feature_set, 'SUSFS') }}
