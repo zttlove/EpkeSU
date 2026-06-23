@@ -11,6 +11,29 @@ runs:
 
         SELINUX_HIDE="${{ github.workspace }}/kernel/feature/selinux_hide.c"
         if [ -f "$SELINUX_HIDE" ]; then
-          sed -i 's/if (security_dump_masked_av_fn)$/if (security_dump_masked_av_fn != NULL)/' "$SELINUX_HIDE"
-          sed -i 's/if (context_struct_compute_av_fn) {/if (context_struct_compute_av_fn != NULL) {/' "$SELINUX_HIDE"
+          python3 - "$SELINUX_HIDE" <<'PY'
+        import re
+        import sys
+        from pathlib import Path
+
+        path = Path(sys.argv[1])
+        text = path.read_text()
+
+        if "extern void security_dump_masked_av_fn(" in text:
+            text, dump_count = re.subn(
+                r"\n[ \t]*if \(\s*security_dump_masked_av_fn\s*(?:!=\s*NULL)?\s*\)\s*\n([ \t]*security_dump_masked_av_fn\()",
+                r"\n\1",
+                text,
+            )
+            text, compute_count = re.subn(
+                r"\n[ \t]*if \(\s*context_struct_compute_av_fn\s*(?:!=\s*NULL)?\s*\) \{\s*\n([ \t]*context_struct_compute_av_fn\([^;]+;\s*)\n[ \t]*\}",
+                r"\n\1",
+                text,
+            )
+            print(f"Removed SUSFS extern function checks: dump={dump_count}, compute={compute_count}")
+            if dump_count != 1 or compute_count != 1:
+                raise SystemExit("EpkeSU post patch fixes did not update the expected SUSFS function checks")
+
+        path.write_text(text)
+        PY
         fi
