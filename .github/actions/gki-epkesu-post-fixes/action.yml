@@ -12,7 +12,6 @@ runs:
         SELINUX_HIDE="${{ github.workspace }}/kernel/feature/selinux_hide.c"
         if [ -f "$SELINUX_HIDE" ]; then
           python3 - "$SELINUX_HIDE" <<'PY'
-        import re
         import sys
         from pathlib import Path
 
@@ -20,16 +19,46 @@ runs:
         text = path.read_text()
 
         if "extern void security_dump_masked_av_fn(" in text:
-            text, dump_count = re.subn(
-                r"\n[ \t]*if \(\s*security_dump_masked_av_fn\s*(?:!=\s*NULL)?\s*\)\s*\n([ \t]*security_dump_masked_av_fn\()",
-                r"\n\1",
-                text,
-            )
-            text, compute_count = re.subn(
-                r"\n[ \t]*if \(\s*context_struct_compute_av_fn\s*(?:!=\s*NULL)?\s*\) \{\s*\n([ \t]*context_struct_compute_av_fn\([^;]+;\s*)\n[ \t]*\}",
-                r"\n\1",
-                text,
-            )
+            lines = text.splitlines(keepends=True)
+            fixed = []
+            dump_count = 0
+            compute_count = 0
+            i = 0
+
+            while i < len(lines):
+                line = lines[i]
+                stripped = line.strip()
+
+                if stripped in (
+                    "if (security_dump_masked_av_fn)",
+                    "if (security_dump_masked_av_fn != NULL)",
+                ):
+                    if i + 1 < len(lines):
+                        fixed.append("    " + lines[i + 1].lstrip())
+                    dump_count += 1
+                    i += 2
+                    continue
+
+                if stripped in (
+                    "if (context_struct_compute_av_fn) {",
+                    "if (context_struct_compute_av_fn != NULL) {",
+                ):
+                    if (
+                        i + 4 < len(lines)
+                        and "context_struct_compute_av_fn(" in lines[i + 1]
+                        and lines[i + 2].strip() == "} else {"
+                        and "context_struct_compute_av(" in lines[i + 3]
+                        and lines[i + 4].strip() == "}"
+                    ):
+                        fixed.append("    " + lines[i + 1].lstrip())
+                        compute_count += 1
+                        i += 5
+                        continue
+
+                fixed.append(line)
+                i += 1
+
+            text = "".join(fixed)
             print(f"Removed SUSFS extern function checks: dump={dump_count}, compute={compute_count}")
             if dump_count != 1 or compute_count != 1:
                 raise SystemExit("EpkeSU post patch fixes did not update the expected SUSFS function checks")
