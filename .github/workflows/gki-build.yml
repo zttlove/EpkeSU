@@ -138,6 +138,9 @@ jobs:
           os_patch_level: ${{ inputs.os_patch_level }}
           sublevel: ${{ steps.extract.outputs.sublevel }}
 
+      - name: Apply EpkeSU post patch fixes
+        uses: ./.github/actions/gki-epkesu-post-fixes
+
       - name: Setup misc configs
         uses: ./.github/actions/gki-misc
         with:
