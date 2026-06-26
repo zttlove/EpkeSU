@@ -46,8 +46,8 @@ static int ksu_handle_event(struct fsnotify_group *group,
     struct fsnotify_mark *mark = NULL;
     struct inode *dir = NULL;
 
-    fsnotify_iter_select_mark(iter_info, FSNOTIFY_OBJ_TYPE_INODE);
-    mark = iter_info->mark;
+    // 5.4 原生API，替代不存在的 fsnotify_iter_select_mark
+    mark = fsnotify_iter_inode_mark(iter_info);
     if (!mark)
         return 0;
 
@@ -59,7 +59,6 @@ static int ksu_handle_event(struct fsnotify_group *group,
     return ksu_handle_inode_event(mark, mask, inode, dir, name, cookie);
 }
 
-// 移除不存在的 .handle_inode_event
 static const struct fsnotify_ops ksu_ops = {
     .handle_event = ksu_handle_event,
 };
@@ -130,10 +129,8 @@ int ksu_observer_init(void)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
     g = fsnotify_alloc_group(&ksu_ops, 0);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
-    g = fsnotify_alloc_group(&ksu_ops);
 #else
-    // 5.4 内核 fsnotify_alloc_group 第二个参数不存在
+    // 5.4 / 5.10 仅单参数
     g = fsnotify_alloc_group(&ksu_ops);
 #endif
     if (IS_ERR(g))
