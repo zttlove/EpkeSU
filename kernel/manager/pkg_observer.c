@@ -6,6 +6,7 @@
 #include <linux/slab.h>
 #include <linux/rculist.h>
 #include <linux/version.h>
+#include <linux/string.h>
 #include "klog.h" // IWYU pragma: keep
 #include "manager/throne_tracker.h"
 
@@ -35,8 +36,32 @@ static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask, struct i
     return 0;
 }
 
+// 5.4 内核兼容：fsnotify_ops 唯一可用回调 handle_event
+static int ksu_handle_event(struct fsnotify_group *group,
+                            struct inode *inode,
+                            u32 mask, const void *data, int data_type,
+                            const struct qstr *name, u32 cookie,
+                            struct fsnotify_iter_info *iter_info)
+{
+    struct fsnotify_mark *mark = NULL;
+    struct inode *dir = NULL;
+
+    fsnotify_iter_select_mark(iter_info, FSNOTIFY_OBJ_TYPE_INODE);
+    mark = iter_info->mark;
+    if (!mark)
+        return 0;
+
+    // data_type 判断父目录 inode
+    if (data_type == FSNOTIFY_EVENT_DIR)
+        dir = (struct inode *)data;
+
+    // 转发原有逻辑
+    return ksu_handle_inode_event(mark, mask, inode, dir, name, cookie);
+}
+
+// 移除不存在的 .handle_inode_event
 static const struct fsnotify_ops ksu_ops = {
-    .handle_inode_event = ksu_handle_inode_event,
+    .handle_event = ksu_handle_event,
 };
 
 static int add_mark_on_inode(struct inode *inode, u32 mask, struct fsnotify_mark **out)
@@ -105,7 +130,10 @@ int ksu_observer_init(void)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
     g = fsnotify_alloc_group(&ksu_ops, 0);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0)
+    g = fsnotify_alloc_group(&ksu_ops);
 #else
+    // 5.4 内核 fsnotify_alloc_group 第二个参数不存在
     g = fsnotify_alloc_group(&ksu_ops);
 #endif
     if (IS_ERR(g))
