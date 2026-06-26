@@ -25,6 +25,7 @@
 #include "sulog/event.h"
 #include "ksu.h"
 #include <asm/uaccess.h>
+#include "../compat.h"
 
 
 
