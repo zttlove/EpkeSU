@@ -24,7 +24,7 @@
 #include "hook/syscall_hook.h"
 #include "sulog/event.h"
 #include "ksu.h"
-#include "util.h"
+
 
 #define SU_PATH "/system/bin/su"
 #define SH_PATH "/system/bin/sh"
