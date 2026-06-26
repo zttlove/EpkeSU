@@ -27,6 +27,16 @@
 #include <asm/uaccess.h>
 
 
+
+static inline void ksu_close_fd(int fd)
+{
+    if (fd >= 0) {
+        struct file *filp = fget(fd);
+        if (filp)
+            filp_close(filp, NULL);
+    }
+}
+
 #define SU_PATH "/system/bin/su"
 #define SH_PATH "/system/bin/sh"
 
@@ -103,8 +113,9 @@ long ksu_handle_faccessat_sucompat(int orig_nr, struct pt_regs *regs)
     memset(path, 0, sizeof(path));
     
     ret = strncpy_from_user(path, *filename_user, sizeof(path) - 1);
-    if (ret < 0)
-    return ret;
+      if (ret < 0){
+       return ret;
+   }
     path[sizeof(path)-1] = '\0';
 
 
@@ -143,8 +154,9 @@ long ksu_handle_stat_sucompat(int orig_nr, struct pt_regs *regs)
     memset(path, 0, sizeof(path));
     
     ret = strncpy_from_user(path, *filename_user, sizeof(path) - 1);
-      if (ret < 0)
+      if (ret < 0){
         return ret;
+         }
         path[sizeof(path)-1] = '\0';
 
     if (unlikely(!memcmp(path, su_path, sizeof(su_path)))) {
