@@ -19,7 +19,6 @@
 #include "klog.h" // IWYU pragma: keep
 #include "ksu.h"
 #include "infra/su_mount_ns.h"
-#include "util.h"
 
 extern int path_mount(const char *dev_name, struct path *path, const char *type_page, unsigned long flags,
                       void *data_page);
