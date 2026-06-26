@@ -44,19 +44,13 @@ static int ksu_handle_event(struct fsnotify_group *group,
                             struct fsnotify_iter_info *iter_info)
 {
     struct fsnotify_mark *mark = NULL;
-    struct inode *dir = NULL;
 
-    // 5.4 原生API，替代不存在的 fsnotify_iter_select_mark
     mark = fsnotify_iter_inode_mark(iter_info);
     if (!mark)
         return 0;
 
-    // data_type 判断父目录 inode
-    if (data_type == FSNOTIFY_EVENT_DIR)
-        dir = (struct inode *)data;
-
-    // 转发原有逻辑
-    return ksu_handle_inode_event(mark, mask, inode, dir, name, cookie);
+    // 5.4 不存在 FSNOTIFY_EVENT_DIR，无法获取父目录，dir 传 NULL
+    return ksu_handle_inode_event(mark, mask, inode, NULL, name, cookie);
 }
 
 static const struct fsnotify_ops ksu_ops = {
