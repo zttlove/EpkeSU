@@ -29,14 +29,6 @@
 
 
 
-static inline void ksu_close_fd(int fd)
-{
-    if (fd >= 0) {
-        struct file *filp = fget(fd);
-        if (filp)
-            filp_close(filp, NULL);
-    }
-}
 
 #define SU_PATH "/system/bin/su"
 #define SH_PATH "/system/bin/sh"
