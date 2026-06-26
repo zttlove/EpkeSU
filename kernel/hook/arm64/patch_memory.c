@@ -13,6 +13,15 @@
 #include "linux/stop_machine.h"
 #include "asm/cacheflush.h"
 #include "asm-generic/fixmap.h"
+#include <asm/uaccess.h>
+#include <linux/mm.h>
+
+static long copy_to_kernel_nofault(void *dst, const void __user *src, unsigned long size)
+{
+    if (!access_ok(src, size))
+        return -EFAULT;
+    return copy_from_user(dst, src, size);
+}
 
 // https://github.com/fuqiuluo/ovo/blob/f7da411458e87d32438dc14fce5a3313ed0c967e/ovo/mmuhack.c#L21
 
