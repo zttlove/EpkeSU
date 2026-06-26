@@ -78,13 +78,13 @@ check_sepolicy() {
 
 magisk() {
   case "$1" in
-    --path)
+    "--path")
       echo "$NVBASE"
       ;;
-    -V)
+    "-V")
       echo "$MAGISK_VER_CODE"
       ;;
-    -v)
+    "-v")
       echo "$MAGISK_VER"
       ;;
     *)
@@ -209,8 +209,8 @@ mount_partitions() {
 
   # Mount ro partitions
   if is_mounted /system_root; then
-    umount /system 2&>/dev/null
-    umount /system_root 2&>/dev/null
+    umount /system 2>/dev/null
+    umount /system_root 2>/dev/null
   fi
   mount_ro_ensure "system$SLOT app$SLOT" /system
   if [ -f /system/init -o -L /system/init ]; then
@@ -342,7 +342,7 @@ boot_actions() { return; }
 
 # Require ZIPFILE to be set
 is_legacy_script() {
-  unzip -l "$ZIPFILE" install.sh | grep -q install.sh
+  unzip -l "$ZIPFILE" install.sh 2>/dev/null | awk '{ print $4 }' | grep -qx 'install.sh'
   return $?
 }
 

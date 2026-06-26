@@ -14,12 +14,16 @@ mod apk_sign;
 mod assets;
 mod boot_patch;
 #[cfg(target_os = "android")]
+mod builtin_mount;
+#[cfg(target_os = "android")]
 mod cli;
 #[cfg(not(target_os = "android"))]
 mod cli_non_android;
 #[cfg(target_os = "android")]
 mod debug;
 mod defs;
+#[cfg(target_os = "android")]
+mod epkesu_hide;
 #[cfg(target_os = "android")]
 mod feature;
 #[cfg(target_os = "android")]

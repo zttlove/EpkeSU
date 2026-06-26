@@ -2,6 +2,7 @@ package me.weishu.kernelsu.ui.screen.home
 
 import android.content.ClipData
 import android.graphics.Bitmap
+import android.os.Build
 import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -14,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -35,6 +37,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.rounded.Android
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -96,10 +100,15 @@ import me.weishu.kernelsu.KernelVersion
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.component.material.TonalCard
 import me.weishu.kernelsu.ui.component.rebootlistpopup.RebootListPopup
+import me.weishu.kernelsu.ui.component.rememberCustomVideoFrameBitmap
 import me.weishu.kernelsu.ui.component.statustag.StatusTag
 import me.weishu.kernelsu.ui.screen.settings.SettingsWallpaperCropDialog
 import me.weishu.kernelsu.ui.theme.isInDarkTheme
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
+
+private object HomeMaterialShapes {
+    val largeTile = RoundedCornerShape(16.dp)
+}
 
 @Composable
 fun HomePagerMaterial(
@@ -108,31 +117,355 @@ fun HomePagerMaterial(
     bottomInnerPadding: Dp,
     installFeedbackActive: Boolean = false,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
-
     Scaffold(
         containerColor = Color.Transparent,
-        topBar = { TopBar(scrollBehavior = scrollBehavior) },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .padding(innerPadding)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp)
+                .padding(top = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StatusCard(
+            HomeHeader(actions = actions)
+            Spacer(Modifier.height(8.dp))
+            HomeOverviewSection(
                 state = state,
                 actions = actions,
                 installFeedbackActive = installFeedbackActive,
             )
             WarningSummaryCard(messages = homeWarningMessages(state))
-            InfoCard(systemInfo = state.systemInfo)
+            InfoCard(state = state)
             SecondaryLinksCard(onOpenUrl = actions.onOpenUrl)
             Spacer(Modifier.height(bottomInnerPadding))
         }
+    }
+}
+
+@Composable
+private fun HomeHeader(actions: HomeActions) {
+    val learnUrl = stringResource(R.string.home_learn_kernelsu_url)
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.home_title),
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        IconButton(onClick = actions.onInstallClick) {
+            Icon(
+                imageVector = Icons.Rounded.AutoFixHigh,
+                contentDescription = stringResource(R.string.install),
+                modifier = Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        RebootListPopup()
+        Box {
+            IconButton(onClick = { expanded = true }) {
+                Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = stringResource(R.string.home_header_more),
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.home_support_title)) },
+                    onClick = {
+                        expanded = false
+                        actions.onOpenUrl("https://patreon.com/weishu")
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.home_learn_kernelsu)) },
+                    onClick = {
+                        expanded = false
+                        actions.onOpenUrl(learnUrl)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeOverviewSection(
+    state: HomeUiState,
+    actions: HomeActions,
+    installFeedbackActive: Boolean,
+) {
+    val patchVersion = remember(state.systemInfo.managerVersion) {
+        parseMaterialPatchVersion(state.systemInfo.managerVersion)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(152.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        PrimaryStatusTile(
+            state = state,
+            actions = actions,
+            installFeedbackActive = installFeedbackActive,
+            modifier = Modifier
+                .weight(1.08f)
+                .fillMaxHeight()
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SummaryStatusTile(
+                icon = Icons.Rounded.Extension,
+                title = stringResource(R.string.home_kernel_patch),
+                value = patchVersion.full,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            )
+            SummaryStatusTile(
+                icon = Icons.Rounded.Android,
+                title = stringResource(R.string.home_system_patch),
+                value = stringResource(if (state.ksuVersion != null) R.string.home_active else R.string.home_inactive),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun PrimaryStatusTile(
+    state: HomeUiState,
+    actions: HomeActions,
+    installFeedbackActive: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val wallpaperTarget = HomeMetricCardWallpaperTarget.Lkm
+    val wallpaperState = rememberHomeMetricCardWallpaperState(
+        target = wallpaperTarget,
+        onWallpaperSelected = {}
+    )
+    val installed = state.ksuVersion != null
+    val installable = state.kernelVersion.isGKI()
+    val showLkmWallpaperActions = state.lkmMode == true
+    val wallpaperBitmap = rememberHomeMetricCardWallpaperBitmap(
+        uriString = if (showLkmWallpaperActions) wallpaperState.uriString else null,
+        crop = wallpaperState.crop,
+    )
+    val lkmVideoUriString = if (showLkmWallpaperActions) wallpaperState.videoUriString else null
+    val hasLkmWallpaper = showLkmWallpaperActions && (wallpaperBitmap != null || !lkmVideoUriString.isNullOrBlank())
+    val workingMode = when (state.lkmMode) {
+        true -> "LKM"
+        false -> "GKI"
+        null -> null
+    }
+    val statusTitle = when {
+        installed -> stringResource(R.string.home_working)
+        installable -> stringResource(R.string.home_not_installed)
+        else -> stringResource(R.string.home_unsupported)
+    }
+    val version = state.ksuVersion?.let { ksu ->
+        ksu.toString()
+    }
+    val statusSubtitle = when {
+        installed -> stringResource(R.string.home_working_version, version ?: "")
+        installable -> stringResource(R.string.home_click_to_install)
+        else -> stringResource(R.string.home_unsupported_reason)
+    }
+    val containerColor = when {
+        installed -> if (isInDarkTheme()) Color(0xFF253629) else Color(0xFFB6C7B7)
+        installable -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = when {
+        installed -> if (isInDarkTheme()) Color(0xFFE7F2E8) else Color(0xFF101511)
+        installable -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val accentColor = when {
+        installed -> Color(0xFF20A44D)
+        installable -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.outline
+    }
+    val icon = when {
+        installed -> Icons.Outlined.CheckCircle
+        installable -> Icons.Rounded.PowerSettingsNew
+        else -> Icons.Outlined.Block
+    }
+    val cardContentColor = if (hasLkmWallpaper) Color.White else contentColor
+    val cardSubtitleColor = if (hasLkmWallpaper) {
+        Color.White.copy(alpha = 0.9f)
+    } else {
+        contentColor.copy(alpha = 0.9f)
+    }
+    val cardAccentColor = if (hasLkmWallpaper) Color.White else accentColor
+
+    Box(
+        modifier = modifier
+            .clip(HomeMaterialShapes.largeTile)
+            .background(containerColor)
+            .clickable(
+                enabled = !installFeedbackActive && !state.isLateLoadMode,
+                onClick = actions.onInstallClick
+            )
+    ) {
+        HomeMetricCardWallpaperBackground(
+            bitmap = if (showLkmWallpaperActions) wallpaperBitmap else null,
+            videoUriString = lkmVideoUriString,
+            videoCrop = wallpaperState.crop,
+        )
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier
+                .size(140.dp)
+                .align(Alignment.BottomEnd)
+                .offset(24.dp, 28.dp),
+            tint = cardAccentColor.copy(
+                alpha = when {
+                    hasLkmWallpaper -> 0.18f
+                    installed -> 0.92f
+                    else -> 0.16f
+                }
+            )
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = 12.dp,
+                    top = 12.dp,
+                    end = 12.dp,
+                    bottom = 12.dp,
+                ),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = statusTitle,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = cardContentColor,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (workingMode != null) {
+                Text(
+                    text = "<$workingMode>",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = cardContentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = statusSubtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = cardSubtitleColor,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (state.isSafeMode || state.isLateLoadMode) {
+                Spacer(Modifier.height(1.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (state.isSafeMode) {
+                        StatusTag(
+                            label = stringResource(id = R.string.safe_mode),
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            backgroundColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    }
+                    if (state.isLateLoadMode) {
+                        StatusTag(
+                            label = stringResource(id = R.string.jailbreak_mode),
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            backgroundColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    }
+                }
+            }
+            if (installFeedbackActive) {
+                Spacer(Modifier.weight(1f))
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
+                    color = cardAccentColor,
+                    trackColor = cardAccentColor.copy(alpha = 0.18f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryStatusTile(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    val containerColor = if (isInDarkTheme()) {
+        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f)
+    } else {
+        Color(0xFFEFF3FF)
+    }
+    val contentColor = MaterialTheme.colorScheme.onSurface
+
+    Column(
+        modifier = modifier
+            .clip(HomeMaterialShapes.largeTile)
+            .background(containerColor)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = contentColor.copy(alpha = 0.82f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -258,7 +591,7 @@ private fun StatusCard(
                                 installFeedbackActive = installFeedbackActive,
                                 accentColor = accentColor,
                                 onInstallClick = actions.onInstallClick,
-                                showJailbreak = state.isSELinuxPermissive,
+                                showJailbreak = true,
                                 onJailbreakClick = actions.onJailbreakClick
                             )
                         }
@@ -493,17 +826,16 @@ private fun MetricContent(
     title: String,
     value: String,
 ) {
-    var showWallpaperPreview by remember { mutableStateOf(false) }
-    var showWallpaperCropEditor by remember { mutableStateOf(false) }
     val wallpaperState = rememberHomeMetricCardWallpaperState(
         target = target,
-        onWallpaperSelected = { showWallpaperCropEditor = true }
+        onWallpaperSelected = {}
     )
     val wallpaperBitmap = rememberHomeMetricCardWallpaperBitmap(
         uriString = wallpaperState.uriString,
         crop = wallpaperState.crop,
     )
-    val hasWallpaper = wallpaperBitmap != null
+    val videoUriString = wallpaperState.videoUriString
+    val hasWallpaper = wallpaperBitmap != null || !videoUriString.isNullOrBlank()
     val primaryColor = if (hasWallpaper) Color.White else MaterialTheme.colorScheme.onSurface
     val secondaryColor = if (hasWallpaper) {
         Color.White.copy(alpha = 0.82f)
@@ -518,18 +850,10 @@ private fun MetricContent(
     }
 
     Box(modifier = Modifier.fillMaxWidth()) {
-        HomeMetricCardWallpaperBackground(bitmap = wallpaperBitmap)
-        MetricCardWallpaperActions(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp),
-            target = target,
-            hasWallpaper = hasWallpaper,
-            showClear = wallpaperState.hasSelectedWallpaper,
-            onPickWallpaper = wallpaperState.onPickWallpaper,
-            onEditCrop = { showWallpaperCropEditor = true },
-            onPreviewWallpaper = { showWallpaperPreview = true },
-            onClearWallpaper = wallpaperState.onClearWallpaper,
+        HomeMetricCardWallpaperBackground(
+            bitmap = wallpaperBitmap,
+            videoUriString = videoUriString,
+            videoCrop = wallpaperState.crop,
         )
         Row(
             modifier = Modifier
@@ -553,7 +877,7 @@ private fun MetricContent(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    modifier = Modifier.padding(end = 44.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     text = title,
                     style = MaterialTheme.typography.labelLarge,
                     color = secondaryColor,
@@ -570,28 +894,6 @@ private fun MetricContent(
             }
         }
     }
-    SettingsWallpaperCropDialog(
-        show = showWallpaperCropEditor && wallpaperState.hasSelectedWallpaper,
-        uriString = wallpaperState.uriString,
-        crop = wallpaperState.crop,
-        onCropChange = {
-            wallpaperState.onCropChange(it)
-            showWallpaperPreview = true
-        },
-        onDismissRequest = { showWallpaperCropEditor = false },
-        title = stringResource(target.cropLabelRes),
-        editorAspectRatio = target.aspectRatio,
-        cropAspectRatio = target.aspectRatio,
-    )
-    MetricCardWallpaperPreviewDialog(
-        show = showWallpaperPreview && wallpaperBitmap != null,
-        target = target,
-        bitmap = wallpaperBitmap,
-        icon = icon,
-        title = title,
-        value = value,
-        onDismissRequest = { showWallpaperPreview = false },
-    )
 }
 
 @Composable
@@ -599,7 +901,9 @@ private fun MetricCardWallpaperActions(
     target: HomeMetricCardWallpaperTarget,
     hasWallpaper: Boolean,
     showClear: Boolean,
+    showCrop: Boolean = showClear,
     onPickWallpaper: () -> Unit,
+    onPickVideoWallpaper: (() -> Unit)? = null,
     onEditCrop: () -> Unit,
     onPreviewWallpaper: () -> Unit,
     onClearWallpaper: () -> Unit,
@@ -637,7 +941,16 @@ private fun MetricCardWallpaperActions(
                     onPickWallpaper()
                 },
             )
-            if (showClear) {
+            if (onPickVideoWallpaper != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.home_lkm_video_wallpaper_pick)) },
+                    onClick = {
+                        expanded = false
+                        onPickVideoWallpaper()
+                    },
+                )
+            }
+            if (showCrop) {
                 DropdownMenuItem(
                     text = { Text(stringResource(target.cropLabelRes)) },
                     onClick = {
@@ -750,6 +1063,101 @@ private fun MetricCardWallpaperPreviewDialog(
 }
 
 @Composable
+private fun LkmStatusWallpaperPreviewDialog(
+    show: Boolean,
+    bitmap: Bitmap?,
+    videoUriString: String?,
+    videoCrop: CustomWallpaperCrop,
+    icon: ImageVector,
+    statusTitle: String,
+    workingMode: String?,
+    statusSubtitle: String,
+    onDismissRequest: () -> Unit,
+) {
+    val imageBitmap = remember(bitmap) { bitmap?.asImageBitmap() }
+    if (!show || (imageBitmap == null && videoUriString.isNullOrBlank())) return
+
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text(stringResource(HomeMetricCardWallpaperTarget.Lkm.previewLabelRes)) },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(HomeMetricCardWallpaperTarget.Lkm.aspectRatio)
+                    .clip(RoundedCornerShape(18.dp))
+            ) {
+                HomeMetricCardWallpaperBackground(
+                    bitmap = bitmap,
+                    videoUriString = videoUriString,
+                    videoCrop = videoCrop,
+                )
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(112.dp)
+                        .align(Alignment.BottomEnd)
+                        .offset(18.dp, 24.dp),
+                    tint = Color.White.copy(alpha = 0.18f)
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .background(Color.White.copy(alpha = 0.18f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = Color.White
+                        )
+                    }
+                    Text(
+                        text = statusTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (workingMode != null) {
+                        Text(
+                            text = "<$workingMode>",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        text = statusSubtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(android.R.string.ok))
+            }
+        },
+    )
+}
+
+@Composable
 private fun WarningSummaryCard(
     messages: List<String>,
 ) {
@@ -763,30 +1171,30 @@ private fun WarningSummaryCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(36.dp)
                         .background(MaterialTheme.colorScheme.error.copy(alpha = 0.14f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.WarningAmber,
                         contentDescription = null,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.error
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = stringResource(R.string.home_warning_title),
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -864,32 +1272,32 @@ private fun SecondaryLinkItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(36.dp)
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.11f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(1.dp))
             Text(
                 text = summary,
                 style = MaterialTheme.typography.bodySmall,
@@ -907,143 +1315,101 @@ private fun SecondaryLinkItem(
 }
 
 @Composable
-private fun InfoCard(systemInfo: SystemInfo) {
-    val clipboard = LocalClipboard.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val copiedText = stringResource(R.string.home_copied_to_clipboard)
-    var fingerprintExpanded by remember { mutableStateOf(false) }
-    var showStatusWallpaperPreview by remember { mutableStateOf(false) }
-    var showStatusWallpaperCropEditor by remember { mutableStateOf(false) }
-    val statusWallpaperState = rememberHomeMetricCardWallpaperState(
-        target = HomeMetricCardWallpaperTarget.StatusMonitor,
-        onWallpaperSelected = { showStatusWallpaperCropEditor = true }
-    )
-    val statusWallpaperBitmap = rememberHomeMetricCardWallpaperBitmap(
-        uriString = statusWallpaperState.uriString,
-        crop = statusWallpaperState.crop,
-    )
-    var showSystemInfoWallpaperPreview by remember { mutableStateOf(false) }
-    var showSystemInfoWallpaperCropEditor by remember { mutableStateOf(false) }
-    val systemInfoWallpaperState = rememberHomeMetricCardWallpaperState(
-        target = HomeMetricCardWallpaperTarget.SystemInfo,
-        onWallpaperSelected = { showSystemInfoWallpaperCropEditor = true }
-    )
-    val systemInfoWallpaperBitmap = rememberHomeMetricCardWallpaperBitmap(
-        uriString = systemInfoWallpaperState.uriString,
-        crop = systemInfoWallpaperState.crop,
-    )
-
-    fun copyValue(label: String, content: String) {
-        scope.launch {
-            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, content)))
-            Toast.makeText(context, copiedText, Toast.LENGTH_SHORT).show()
-        }
+private fun InfoCard(state: HomeUiState) {
+    val patchVersion = remember(state.systemInfo.managerVersion) {
+        parseMaterialPatchVersion(state.systemInfo.managerVersion)
     }
+    val systemVersion = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
 
-    TonalCard {
+    TonalCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            val selinuxDisplay = when (systemInfo.selinuxStatus) {
-                "Enforcing" -> stringResource(R.string.selinux_status_enforcing)
-                "Permissive" -> stringResource(R.string.selinux_status_permissive)
-                "Disabled" -> stringResource(R.string.selinux_status_disabled)
-                else -> stringResource(R.string.selinux_status_unknown)
-            }
-            val seccompDisplay = when (systemInfo.seccompStatus) {
-                -1 -> stringResource(R.string.seccomp_status_not_supported)
-                0 -> stringResource(R.string.seccomp_status_disabled)
-                1 -> stringResource(R.string.seccomp_status_strict)
-                2 -> stringResource(R.string.seccomp_status_filter)
-                else -> stringResource(R.string.seccomp_status_unknown)
-            }
-            StatusMonitorPanel(
-                selinuxLabel = stringResource(R.string.home_selinux_status),
-                selinuxValue = selinuxDisplay,
-                selinuxDotColor = selinuxDotColor(systemInfo.selinuxStatus),
-                seccompLabel = stringResource(R.string.home_seccomp_status),
-                seccompValue = seccompDisplay,
-                seccompDotColor = seccompDotColor(systemInfo.seccompStatus),
-                wallpaperState = statusWallpaperState,
-                wallpaperBitmap = statusWallpaperBitmap,
-                onEditWallpaperCrop = { showStatusWallpaperCropEditor = true },
-                onPreviewWallpaper = { showStatusWallpaperPreview = true },
+            InfoLine(
+                label = stringResource(R.string.home_kernel_patch_version),
+                value = patchVersion.summary,
             )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f))
+            InfoLine(
+                label = stringResource(R.string.home_su_executable),
+                value = "/system/bin/su",
             )
-
-            SystemInfoPanel(
-                systemInfo = systemInfo,
-                fingerprintExpanded = fingerprintExpanded,
-                onFingerprintExpandedChange = { fingerprintExpanded = it },
-                wallpaperState = systemInfoWallpaperState,
-                wallpaperBitmap = systemInfoWallpaperBitmap,
-                onEditWallpaperCrop = { showSystemInfoWallpaperCropEditor = true },
-                onPreviewWallpaper = { showSystemInfoWallpaperPreview = true },
-                onCopyValue = ::copyValue,
+            InfoLine(
+                label = stringResource(R.string.home_folkpatch_version),
+                value = state.ksuVersion?.toString() ?: "--",
+            )
+            InfoLine(
+                label = stringResource(R.string.home_device_model),
+                value = state.systemInfo.deviceModel,
+            )
+            InfoLine(
+                label = stringResource(R.string.home_kernel),
+                value = state.systemInfo.kernelVersion,
+                maxLines = 2,
+            )
+            InfoLine(
+                label = stringResource(R.string.home_system_version),
+                value = systemVersion,
+            )
+            InfoLine(
+                label = stringResource(R.string.home_fingerprint),
+                value = state.systemInfo.fingerprint,
+                maxLines = 3,
             )
         }
     }
-    HomeWallpaperCropDialog(
-        show = showStatusWallpaperCropEditor && statusWallpaperState.hasSelectedWallpaper,
-        target = HomeMetricCardWallpaperTarget.StatusMonitor,
-        uriString = statusWallpaperState.uriString,
-        crop = statusWallpaperState.crop,
-        onCropChange = {
-            statusWallpaperState.onCropChange(it)
-            showStatusWallpaperPreview = true
-        },
-        onDismissRequest = { showStatusWallpaperCropEditor = false },
-    )
-    StatusMonitorWallpaperPreviewDialog(
-        show = showStatusWallpaperPreview && statusWallpaperBitmap != null,
-        bitmap = statusWallpaperBitmap,
-        selinuxLabel = stringResource(R.string.home_selinux_status),
-        selinuxValue = when (systemInfo.selinuxStatus) {
-            "Enforcing" -> stringResource(R.string.selinux_status_enforcing)
-            "Permissive" -> stringResource(R.string.selinux_status_permissive)
-            "Disabled" -> stringResource(R.string.selinux_status_disabled)
-            else -> stringResource(R.string.selinux_status_unknown)
-        },
-        selinuxDotColor = selinuxDotColor(systemInfo.selinuxStatus),
-        seccompLabel = stringResource(R.string.home_seccomp_status),
-        seccompValue = when (systemInfo.seccompStatus) {
-            -1 -> stringResource(R.string.seccomp_status_not_supported)
-            0 -> stringResource(R.string.seccomp_status_disabled)
-            1 -> stringResource(R.string.seccomp_status_strict)
-            2 -> stringResource(R.string.seccomp_status_filter)
-            else -> stringResource(R.string.seccomp_status_unknown)
-        },
-        seccompDotColor = seccompDotColor(systemInfo.seccompStatus),
-        onDismissRequest = { showStatusWallpaperPreview = false },
-    )
-    HomeWallpaperCropDialog(
-        show = showSystemInfoWallpaperCropEditor && systemInfoWallpaperState.hasSelectedWallpaper,
-        target = HomeMetricCardWallpaperTarget.SystemInfo,
-        uriString = systemInfoWallpaperState.uriString,
-        crop = systemInfoWallpaperState.crop,
-        onCropChange = {
-            systemInfoWallpaperState.onCropChange(it)
-            showSystemInfoWallpaperPreview = true
-        },
-        onDismissRequest = { showSystemInfoWallpaperCropEditor = false },
-    )
-    SystemInfoWallpaperPreviewDialog(
-        show = showSystemInfoWallpaperPreview && systemInfoWallpaperBitmap != null,
-        bitmap = systemInfoWallpaperBitmap,
-        systemInfo = systemInfo,
-        fingerprintExpanded = fingerprintExpanded,
-        onDismissRequest = { showSystemInfoWallpaperPreview = false },
-    )
+}
+
+@Composable
+private fun InfoLine(
+    label: String,
+    value: String,
+    maxLines: Int = 2,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private data class ParsedPatchVersion(
+    val summary: String,
+    val full: String,
+)
+
+private fun parseMaterialPatchVersion(raw: String): ParsedPatchVersion {
+    val trimmed = raw.trim()
+    if (trimmed.isBlank()) {
+        return ParsedPatchVersion(summary = "--", full = "--")
+    }
+
+    val name = trimmed.substringBefore(" (").trim().ifBlank { trimmed }
+    val code = trimmed.substringAfter("(", "")
+        .substringBefore(")")
+        .substringBefore("-")
+        .trim()
+        .takeIf { it.isNotBlank() }
+
+    val full = if (code != null) {
+        "$name ($code)"
+    } else {
+        name
+    }
+    return ParsedPatchVersion(summary = name, full = full)
 }
 
 @Composable
@@ -1250,10 +1616,12 @@ private fun HomeWallpaperCropDialog(
     show: Boolean,
     target: HomeMetricCardWallpaperTarget,
     uriString: String?,
+    videoUriString: String? = null,
     crop: CustomWallpaperCrop,
     onCropChange: (CustomWallpaperCrop) -> Unit,
     onDismissRequest: () -> Unit,
 ) {
+    val videoPreviewBitmap = rememberCustomVideoFrameBitmap(videoUriString)
     SettingsWallpaperCropDialog(
         show = show,
         uriString = uriString,
@@ -1263,6 +1631,7 @@ private fun HomeWallpaperCropDialog(
         title = stringResource(target.cropLabelRes),
         editorAspectRatio = target.aspectRatio,
         cropAspectRatio = target.aspectRatio,
+        previewBitmap = videoPreviewBitmap,
     )
 }
 
@@ -1583,24 +1952,26 @@ private fun HomeScreenPreviewContent(
     selinuxStatus: String = "Enforcing",
 ) {
     CompositionLocalProvider(LocalUriHandler provides previewUriHandler) {
+        val previewState = previewHomeScreenState(
+            ksuVersion = ksuVersion,
+            lkmMode = lkmMode,
+            isSafeMode = isSafeMode,
+            isLateLoadMode = isLateLoadMode,
+            superuserCount = superuserCount,
+            moduleCount = moduleCount,
+            selinuxStatus = selinuxStatus,
+        )
         Column(
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             val actions = HomeActions({}, {}, {}, {})
-            StatusCard(
-                state = previewHomeScreenState(
-                    ksuVersion = ksuVersion,
-                    lkmMode = lkmMode,
-                    isSafeMode = isSafeMode,
-                    isLateLoadMode = isLateLoadMode,
-                    superuserCount = superuserCount,
-                    moduleCount = moduleCount,
-                    selinuxStatus = selinuxStatus,
-                ),
-                actions = actions
+            HomeOverviewSection(
+                state = previewState,
+                actions = actions,
+                installFeedbackActive = false,
             )
-            InfoCard(previewSystemInfo.copy(selinuxStatus = selinuxStatus))
+            InfoCard(previewState)
             SecondaryLinksCard(onOpenUrl = {})
         }
     }
@@ -1650,6 +2021,7 @@ private fun previewHomeScreenState(
     isSafeMode = isSafeMode,
     isLateLoadMode = isLateLoadMode,
     currentManagerVersionCode = 10000,
+    showVersionMismatchWarningSetting = true,
     superuserCount = superuserCount,
     moduleCount = moduleCount,
     systemInfo = previewSystemInfo.copy(selinuxStatus = selinuxStatus),

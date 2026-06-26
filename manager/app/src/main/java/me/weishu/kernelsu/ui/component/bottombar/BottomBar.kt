@@ -16,16 +16,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.ui.InterfaceStyle
 import me.weishu.kernelsu.ui.LocalInterfaceStyle
 import me.weishu.kernelsu.ui.LocalMainPagerState
 import me.weishu.kernelsu.ui.LocalUiMode
 import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.component.alpha.AlphaBottomBar
+import me.weishu.kernelsu.ui.component.delta.DeltaBottomBar
 import me.weishu.kernelsu.ui.component.skrootpro.SkrootproBottomBar
+import me.weishu.kernelsu.ui.util.rootAvailable
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import kotlin.math.abs
+
+internal fun hasFullFeaturedManager(): Boolean {
+    val isManager = runCatching { Natives.isManager }.getOrDefault(false)
+    if (!isManager) return false
+    val requiresNewKernel = runCatching { Natives.requireNewKernel() }.getOrDefault(true)
+    if (requiresNewKernel) return false
+    return runCatching { rootAvailable() }.getOrDefault(false)
+}
 
 class MainPagerState(
     val pagerState: PagerState,
@@ -108,6 +119,16 @@ fun BottomBar(
     if (LocalInterfaceStyle.current == InterfaceStyle.Alpha.value) {
         val mainState = LocalMainPagerState.current
         AlphaBottomBar(
+            selectedIndex = mainState.selectedPage,
+            onSelected = mainState::animateToPage,
+            modifier = modifier,
+        )
+        return
+    }
+
+    if (LocalInterfaceStyle.current == InterfaceStyle.Delta.value) {
+        val mainState = LocalMainPagerState.current
+        DeltaBottomBar(
             selectedIndex = mainState.selectedPage,
             onSelected = mainState::animateToPage,
             modifier = modifier,

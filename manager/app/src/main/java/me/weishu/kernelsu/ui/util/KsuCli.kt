@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.Parcelable
 import android.os.SystemClock
@@ -22,6 +23,7 @@ import me.weishu.kernelsu.BuildConfig
 import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.ksuApp
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -34,7 +36,11 @@ import kotlin.coroutines.resume
  */
 private const val TAG = "KsuCli"
 private const val SHELL_JOB_TIMEOUT_MILLIS = 10_000L
+private const val ANDROID_16_API = 36
 private const val BUSYBOX = "/data/adb/ksu/bin/busybox"
+const val HYBRID_MOUNT_MODULE_ID = "hybrid_mount"
+const val BUILTIN_MOUNT_MODE_OVERLAY = "overlay"
+const val BUILTIN_MOUNT_MODE_MAGIC = "magic"
 
 private fun getKsuDaemonPath(): String {
     return ksuApp.applicationInfo.nativeLibraryDir + File.separator + "libksud.so"
@@ -44,6 +50,23 @@ data class FlashResult(val code: Int, val err: String, val showReboot: Boolean) 
     constructor(result: Shell.Result, showReboot: Boolean) : this(result.code, result.err.joinToString("\n"), showReboot)
     constructor(result: Shell.Result) : this(result, result.isSuccess)
 }
+
+data class BuiltinMountStatus(
+    val moduleId: String = HYBRID_MOUNT_MODULE_ID,
+    val moduleName: String = "Hybrid Mount Lite",
+    val modulePath: String = "/data/adb/ksu/builtin/hybrid_mount",
+    val version: String = "",
+    val versionCode: String = "",
+    val installed: Boolean = false,
+    val enabled: Boolean = false,
+    val conflict: String? = null,
+    val defaultMode: String = BUILTIN_MOUNT_MODE_OVERLAY,
+    val webUi: Boolean = false,
+)
+
+data class EpkesuHideStatus(
+    val enabled: Boolean = false,
+)
 
 object KsuCli {
     private val shellLock = Any()
@@ -117,28 +140,40 @@ fun Uri.getFileName(context: Context): String? {
 fun createRootShell(globalMnt: Boolean = false): Shell {
     Shell.enableVerboseLogging = BuildConfig.DEBUG
     val builder = Shell.Builder.create()
-    return try {
+    val tryKsuShell = {
         if (globalMnt) {
             builder.build(getKsuDaemonPath(), "debug", "su", "-g")
         } else {
             builder.build(getKsuDaemonPath(), "debug", "su")
         }
-    } catch (e: Throwable) {
-        Log.w(TAG, "ksu failed: ", e)
+    }
+    val trySuShell = {
+        if (globalMnt) {
+            builder.build("su", "-mm")
+        } else {
+            builder.build("su")
+        }
+    }
+
+    return try {
+        tryKsuShell()
+    } catch (ksuError: Throwable) {
+        Log.w(TAG, "ksu failed: ", ksuError)
         try {
-            if (globalMnt) {
-                builder.build("su", "-mm")
-            } else {
-                builder.build("su")
-            }
-        } catch (e: Throwable) {
-            Log.e(TAG, "su failed: ", e)
+            trySuShell()
+        } catch (suError: Throwable) {
+            Log.e(TAG, "su failed: ", suError)
             builder.build("sh")
         }
     }
 }
 
 fun execKsud(args: String, newShell: Boolean = false): Boolean {
+    if (shouldSkipUnsafeKsudCommand()) {
+        Log.w(TAG, "skip ksud command without safe root shell: $args")
+        return false
+    }
+
     return if (newShell) {
         withNewRootShell {
             ShellUtils.fastCmdResult(this, "${getKsuDaemonPath()} $args")
@@ -148,7 +183,108 @@ fun execKsud(args: String, newShell: Boolean = false): Boolean {
     }
 }
 
+suspend fun getBuiltinMountStatus(): BuiltinMountStatus = withContext(Dispatchers.IO) {
+    if (shouldSkipUnsafeKsudCommand()) {
+        return@withContext BuiltinMountStatus()
+    }
+
+    runCatching {
+        val stdout = ArrayList<String>()
+        val stderr = ArrayList<String>()
+        val result = withTimeoutOrNull(SHELL_JOB_TIMEOUT_MILLIS) {
+            getRootShell().newJob()
+                .add("${getKsuDaemonPath()} builtin-mount status")
+                .to(stdout, stderr)
+                .exec()
+        }
+
+        if (result == null) {
+            Log.w(TAG, "builtin-mount status timed out")
+            KsuCli.reset()
+            return@runCatching BuiltinMountStatus()
+        }
+
+        if (!result.isSuccess) {
+            Log.w(TAG, "builtin-mount status failed: ${stderr.joinToString("\n")}")
+            return@runCatching BuiltinMountStatus()
+        }
+
+        val obj = JSONObject(stdout.joinToString("\n"))
+        val mode = obj.optString("defaultMode", BUILTIN_MOUNT_MODE_OVERLAY)
+            .takeIf { it == BUILTIN_MOUNT_MODE_OVERLAY || it == BUILTIN_MOUNT_MODE_MAGIC }
+            ?: BUILTIN_MOUNT_MODE_OVERLAY
+        BuiltinMountStatus(
+            moduleId = obj.optString("moduleId", HYBRID_MOUNT_MODULE_ID),
+            moduleName = obj.optString("moduleName", "Hybrid Mount Lite"),
+            modulePath = obj.optString("modulePath", "/data/adb/ksu/builtin/hybrid_mount"),
+            version = obj.optString("version", ""),
+            versionCode = obj.optString("versionCode", ""),
+            installed = obj.optBoolean("installed", false),
+            enabled = obj.optBoolean("enabled", false),
+            conflict = obj.optString("conflict").takeIf { it.isNotBlank() && it != "null" },
+            defaultMode = mode,
+            webUi = obj.optBoolean("webui", false),
+        )
+    }.getOrElse {
+        Log.w(TAG, "builtin-mount status unavailable", it)
+        KsuCli.reset()
+        BuiltinMountStatus()
+    }
+}
+
+fun setBuiltinMountEnabled(enabled: Boolean): Boolean {
+    val command = if (enabled) "enable" else "disable"
+    return execKsud("builtin-mount $command", true)
+}
+
+fun setBuiltinMountDefaultMode(mode: String): Boolean {
+    val normalized = if (mode == BUILTIN_MOUNT_MODE_MAGIC) {
+        BUILTIN_MOUNT_MODE_MAGIC
+    } else {
+        BUILTIN_MOUNT_MODE_OVERLAY
+    }
+    return execKsud("builtin-mount set-default-mode $normalized", true)
+}
+
+suspend fun getEpkesuHideStatus(): EpkesuHideStatus = withContext(Dispatchers.IO) {
+    if (shouldSkipUnsafeKsudCommand()) {
+        return@withContext EpkesuHideStatus()
+    }
+
+    val shell = getRootShell()
+    val stdout = ArrayList<String>()
+    val stderr = ArrayList<String>()
+    val result = shell.newJob()
+        .add("${getKsuDaemonPath()} epkesu-hide status")
+        .to(stdout, stderr)
+        .exec()
+
+    if (!result.isSuccess) {
+        Log.w(TAG, "epkesu-hide status failed: ${stderr.joinToString("\n")}")
+        return@withContext EpkesuHideStatus()
+    }
+
+    runCatching {
+        val obj = JSONObject(stdout.joinToString("\n"))
+        EpkesuHideStatus(
+            enabled = obj.optBoolean("enabled", false),
+        )
+    }.getOrElse {
+        Log.w(TAG, "parse epkesu-hide status failed: ${stdout.joinToString("\n")}", it)
+        EpkesuHideStatus()
+    }
+}
+
+fun setEpkesuHideEnabled(enabled: Boolean): Boolean {
+    val command = if (enabled) "enable" else "disable"
+    return execKsud("epkesu-hide $command", true)
+}
+
 suspend fun getFeatureStatus(feature: String): String = withContext(Dispatchers.IO) {
+    if (shouldSkipUnsafeKsudCommand()) {
+        return@withContext ""
+    }
+
     val shell = getRootShell()
     val out = shell.newJob()
         .add("${getKsuDaemonPath()} feature check $feature").to(ArrayList<String>(), null).exec().out
@@ -156,6 +292,10 @@ suspend fun getFeatureStatus(feature: String): String = withContext(Dispatchers.
 }
 
 suspend fun getFeaturePersistValue(feature: String): Long? = withContext(Dispatchers.IO) {
+    if (shouldSkipUnsafeKsudCommand()) {
+        return@withContext null
+    }
+
     val shell = getRootShell()
     val out = shell.newJob()
         .add("${getKsuDaemonPath()} feature get --config $feature").to(ArrayList<String>(), null).exec().out
@@ -171,6 +311,10 @@ fun install() {
 }
 
 fun listModules(): String {
+    if (shouldSkipUnsafeKsudCommand()) {
+        return "[]"
+    }
+
     val shell = getRootShell()
 
     val result = shell.newJob()
@@ -184,6 +328,10 @@ fun listModules(): String {
 }
 
 suspend fun listModulesWithTimeout(timeoutMillis: Long = SHELL_JOB_TIMEOUT_MILLIS): String {
+    if (shouldSkipUnsafeKsudCommand()) {
+        return "[]"
+    }
+
     val stdout = ArrayList<String>()
     val result = withTimeoutOrNull(timeoutMillis) {
         suspendCancellableCoroutine { cont ->
@@ -544,8 +692,17 @@ fun flashAnyKernelZip(
 }
 
 fun rootAvailable(): Boolean {
-    val shell = getRootShell()
-    return shell.isRoot
+    return runCatching {
+        val available = getRootShell().isRoot
+        if (!available) {
+            KsuCli.reset()
+        }
+        available
+    }.getOrDefault(false)
+}
+
+private fun shouldSkipUnsafeKsudCommand(): Boolean {
+    return Build.VERSION.SDK_INT >= ANDROID_16_API && !rootAvailable()
 }
 
 private val fallbackSupportedKmis = listOf(

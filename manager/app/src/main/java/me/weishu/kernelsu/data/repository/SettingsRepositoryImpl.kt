@@ -12,6 +12,8 @@ import me.weishu.kernelsu.magica.BootCompletedReceiver
 import me.weishu.kernelsu.ui.InterfaceStyle
 import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.theme.CustomThemePreset
+import me.weishu.kernelsu.ui.theme.DELTA_COLOR_VARIANT_KEY
+import me.weishu.kernelsu.ui.theme.DeltaColorVariant
 import me.weishu.kernelsu.ui.theme.ThemeAppearanceDefaults
 import me.weishu.kernelsu.ui.theme.ThemeAppearanceSnapshot
 import me.weishu.kernelsu.ui.theme.ThemePreset
@@ -27,24 +29,57 @@ import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_OPACITY_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_PASSTHROUGH_ENABLED_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_URI_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_VIDEO_BACKGROUND_URI_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_STARTUP_ANIMATION_URI_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_BACKGROUND_MUSIC_URI_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_BACKGROUND_MUSIC_VOLUME_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_CLICK_SOUND_URI_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_CLICK_SOUND_VOLUME_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_STARTUP_SOUND_DURATION_SECONDS_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_STARTUP_SOUND_URI_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_STARTUP_SOUND_VOLUME_KEY
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSet
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSlot
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundSet
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundTarget
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_CROP
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_AUDIO_VOLUME
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_BACKGROUND_MUSIC_VOLUME
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_STARTUP_SOUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.LauncherIconOption
 import me.weishu.kernelsu.ui.util.applyLauncherIcon
 import me.weishu.kernelsu.ui.util.execKsud
+import me.weishu.kernelsu.ui.util.getBuiltinMountStatus as readBuiltinMountStatus
 import me.weishu.kernelsu.ui.util.getFeaturePersistValue
 import me.weishu.kernelsu.ui.util.getFeatureStatus
 import me.weishu.kernelsu.ui.util.releaseCustomImageReference
+import me.weishu.kernelsu.ui.util.releasePersistableVideoBackgroundReadPermission
+import me.weishu.kernelsu.ui.util.clearCustomPageBackground as clearPageBackground
+import me.weishu.kernelsu.ui.util.readCustomNavigationIconSet
+import me.weishu.kernelsu.ui.util.readCustomPageBackgroundSet
+import me.weishu.kernelsu.ui.util.sanitizeCustomAudioVolume
+import me.weishu.kernelsu.ui.util.sanitizeCustomBackgroundMusicVolume
 import me.weishu.kernelsu.ui.util.sanitizeCustomStartupSoundDurationSeconds
+import me.weishu.kernelsu.ui.util.sanitizeCustomVideoBackgroundDurationSeconds
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperCrop
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperOpacity
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperPassthroughOpacity
+import me.weishu.kernelsu.ui.util.setCustomPageBackgroundCrop as writeCustomPageBackgroundCrop
+import me.weishu.kernelsu.ui.util.setCustomPageBackgroundOpacity as writeCustomPageBackgroundOpacity
+import me.weishu.kernelsu.ui.util.setCustomPageBackgroundVideo as writeCustomPageBackgroundVideo
+import me.weishu.kernelsu.ui.util.setCustomPageBackgroundVideoDurationSeconds as writeCustomPageBackgroundVideoDurationSeconds
+import me.weishu.kernelsu.ui.util.setCustomPageBackgroundWallpaper as writeCustomPageBackgroundWallpaper
+import me.weishu.kernelsu.ui.util.setBuiltinMountDefaultMode as writeBuiltinMountDefaultMode
+import me.weishu.kernelsu.ui.util.setBuiltinMountEnabled as writeBuiltinMountEnabled
+import me.weishu.kernelsu.ui.util.getEpkesuHideStatus as readEpkesuHideStatus
+import me.weishu.kernelsu.ui.util.setEpkesuHideEnabled as writeEpkesuHideEnabled
+import me.weishu.kernelsu.ui.util.setCustomNavigationIcon as writeCustomNavigationIcon
+import me.weishu.kernelsu.ui.util.setCustomNavigationIconCrop as writeCustomNavigationIconCrop
 import java.util.UUID
 
 class SettingsRepositoryImpl : SettingsRepository {
@@ -60,6 +95,10 @@ class SettingsRepositoryImpl : SettingsRepository {
     override var checkModuleUpdate: Boolean
         get() = prefs.getBoolean("module_check_update", true)
         set(value) = prefs.edit { putBoolean("module_check_update", value) }
+
+    override var showVersionMismatchWarning: Boolean
+        get() = prefs.getBoolean(SHOW_VERSION_MISMATCH_WARNING_KEY, true)
+        set(value) = prefs.edit { putBoolean(SHOW_VERSION_MISMATCH_WARNING_KEY, value) }
 
     override var themeMode: Int
         get() = prefs.getInt(themeKey("color_mode"), defaultThemePreset.colorMode.value)
@@ -191,6 +230,15 @@ class SettingsRepositoryImpl : SettingsRepository {
         get() = prefs.getBoolean("enable_web_debugging", false)
         set(value) = prefs.edit { putBoolean("enable_web_debugging", value) }
 
+    override var deltaColorVariant: String
+        get() = DeltaColorVariant.fromValue(
+            prefs.getString(DELTA_COLOR_VARIANT_KEY, DeltaColorVariant.DEFAULT_VALUE)
+                ?: DeltaColorVariant.DEFAULT_VALUE
+        ).value
+        set(value) = prefs.edit {
+            putString(DELTA_COLOR_VARIANT_KEY, DeltaColorVariant.fromValue(value).value)
+        }
+
     override var autoJailbreak: Boolean
         get() = prefs.getBoolean("auto_jailbreak", false)
         set(value) {
@@ -238,6 +286,7 @@ class SettingsRepositoryImpl : SettingsRepository {
         get() = prefs.getString(CUSTOM_WALLPAPER_URI_KEY, null)
         set(value) {
             val previous = customWallpaperUri
+            val previousVideo = customVideoBackgroundUri
             prefs.edit(commit = true) {
                 if (value.isNullOrBlank()) {
                     remove(CUSTOM_WALLPAPER_URI_KEY)
@@ -247,6 +296,7 @@ class SettingsRepositoryImpl : SettingsRepository {
                     remove(CUSTOM_WALLPAPER_CROP_BOTTOM_KEY)
                 } else {
                     putString(CUSTOM_WALLPAPER_URI_KEY, value)
+                    remove(CUSTOM_VIDEO_BACKGROUND_URI_KEY)
                     putFloat(CUSTOM_WALLPAPER_CROP_LEFT_KEY, DEFAULT_CUSTOM_WALLPAPER_CROP.left)
                     putFloat(CUSTOM_WALLPAPER_CROP_TOP_KEY, DEFAULT_CUSTOM_WALLPAPER_CROP.top)
                     putFloat(CUSTOM_WALLPAPER_CROP_RIGHT_KEY, DEFAULT_CUSTOM_WALLPAPER_CROP.right)
@@ -255,6 +305,9 @@ class SettingsRepositoryImpl : SettingsRepository {
             }
             if (previous != value) {
                 releaseCustomImageReference(ksuApp, previous)
+            }
+            if (!value.isNullOrBlank() && previousVideo != null) {
+                releasePersistableVideoBackgroundReadPermission(ksuApp, previousVideo)
             }
         }
 
@@ -298,6 +351,75 @@ class SettingsRepositoryImpl : SettingsRepository {
             putFloat(CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY_KEY, sanitizeCustomWallpaperPassthroughOpacity(value))
         }
 
+    override var customVideoBackgroundUri: String?
+        get() = prefs.getString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, null)
+        set(value) {
+            val previous = customVideoBackgroundUri
+            val previousWallpaper = customWallpaperUri
+            prefs.edit(commit = true) {
+                if (value.isNullOrBlank()) {
+                    remove(CUSTOM_VIDEO_BACKGROUND_URI_KEY)
+                } else {
+                    putString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, value)
+                    remove(CUSTOM_WALLPAPER_URI_KEY)
+                    remove(CUSTOM_WALLPAPER_CROP_LEFT_KEY)
+                    remove(CUSTOM_WALLPAPER_CROP_TOP_KEY)
+                    remove(CUSTOM_WALLPAPER_CROP_RIGHT_KEY)
+                    remove(CUSTOM_WALLPAPER_CROP_BOTTOM_KEY)
+                }
+            }
+            if (previous != value) {
+                releasePersistableVideoBackgroundReadPermission(ksuApp, previous)
+            }
+            if (!value.isNullOrBlank() && previousWallpaper != null) {
+                releaseCustomImageReference(ksuApp, previousWallpaper)
+            }
+        }
+
+    override var customVideoBackgroundDurationSeconds: Int
+        get() = sanitizeCustomVideoBackgroundDurationSeconds(
+            prefs.getInt(
+                CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY,
+                DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS,
+            )
+        )
+        set(value) = prefs.edit {
+            putInt(
+                CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY,
+                sanitizeCustomVideoBackgroundDurationSeconds(value),
+            )
+        }
+
+    override val customPageBackgrounds: CustomPageBackgroundSet
+        get() = prefs.readCustomPageBackgroundSet()
+
+    override fun setCustomPageBackgroundWallpaper(target: CustomPageBackgroundTarget, uriString: String?) {
+        writeCustomPageBackgroundWallpaper(ksuApp, target, uriString)
+    }
+
+    override fun setCustomPageBackgroundVideo(target: CustomPageBackgroundTarget, uriString: String?) {
+        writeCustomPageBackgroundVideo(ksuApp, target, uriString)
+    }
+
+    override fun setCustomPageBackgroundOpacity(target: CustomPageBackgroundTarget, opacity: Float) {
+        writeCustomPageBackgroundOpacity(ksuApp, target, opacity)
+    }
+
+    override fun setCustomPageBackgroundCrop(target: CustomPageBackgroundTarget, crop: CustomWallpaperCrop) {
+        writeCustomPageBackgroundCrop(ksuApp, target, crop)
+    }
+
+    override fun setCustomPageBackgroundVideoDurationSeconds(
+        target: CustomPageBackgroundTarget,
+        seconds: Int,
+    ) {
+        writeCustomPageBackgroundVideoDurationSeconds(ksuApp, target, seconds)
+    }
+
+    override fun clearCustomPageBackground(target: CustomPageBackgroundTarget) {
+        clearPageBackground(ksuApp, target)
+    }
+
     override var customStartupSoundUri: String?
         get() = prefs.getString(CUSTOM_STARTUP_SOUND_URI_KEY, null)
         set(value) = prefs.edit {
@@ -322,6 +444,50 @@ class SettingsRepositoryImpl : SettingsRepository {
             )
         }
 
+    override var customStartupSoundVolume: Float
+        get() = sanitizeCustomAudioVolume(
+            prefs.getFloat(CUSTOM_STARTUP_SOUND_VOLUME_KEY, DEFAULT_CUSTOM_AUDIO_VOLUME)
+        )
+        set(value) = prefs.edit {
+            putFloat(CUSTOM_STARTUP_SOUND_VOLUME_KEY, sanitizeCustomAudioVolume(value))
+        }
+
+    override var customClickSoundUri: String?
+        get() = prefs.getString(CUSTOM_CLICK_SOUND_URI_KEY, null)
+        set(value) = prefs.edit {
+            if (value.isNullOrBlank()) {
+                remove(CUSTOM_CLICK_SOUND_URI_KEY)
+            } else {
+                putString(CUSTOM_CLICK_SOUND_URI_KEY, value)
+            }
+        }
+
+    override var customClickSoundVolume: Float
+        get() = sanitizeCustomAudioVolume(
+            prefs.getFloat(CUSTOM_CLICK_SOUND_VOLUME_KEY, DEFAULT_CUSTOM_AUDIO_VOLUME)
+        )
+        set(value) = prefs.edit {
+            putFloat(CUSTOM_CLICK_SOUND_VOLUME_KEY, sanitizeCustomAudioVolume(value))
+        }
+
+    override var customBackgroundMusicUri: String?
+        get() = prefs.getString(CUSTOM_BACKGROUND_MUSIC_URI_KEY, null)
+        set(value) = prefs.edit {
+            if (value.isNullOrBlank()) {
+                remove(CUSTOM_BACKGROUND_MUSIC_URI_KEY)
+            } else {
+                putString(CUSTOM_BACKGROUND_MUSIC_URI_KEY, value)
+            }
+        }
+
+    override var customBackgroundMusicVolume: Float
+        get() = sanitizeCustomBackgroundMusicVolume(
+            prefs.getFloat(CUSTOM_BACKGROUND_MUSIC_VOLUME_KEY, DEFAULT_CUSTOM_BACKGROUND_MUSIC_VOLUME)
+        )
+        set(value) = prefs.edit {
+            putFloat(CUSTOM_BACKGROUND_MUSIC_VOLUME_KEY, sanitizeCustomBackgroundMusicVolume(value))
+        }
+
     override var customStartupAnimationUri: String?
         get() = prefs.getString(CUSTOM_STARTUP_ANIMATION_URI_KEY, null)
         set(value) = prefs.edit {
@@ -331,6 +497,17 @@ class SettingsRepositoryImpl : SettingsRepository {
                 putString(CUSTOM_STARTUP_ANIMATION_URI_KEY, value)
             }
         }
+
+    override val customNavigationIcons: CustomNavigationIconSet
+        get() = prefs.readCustomNavigationIconSet()
+
+    override fun setCustomNavigationIcon(slot: CustomNavigationIconSlot, uriString: String?) {
+        writeCustomNavigationIcon(ksuApp, slot, uriString)
+    }
+
+    override fun setCustomNavigationIconCrop(slot: CustomNavigationIconSlot, crop: CustomWallpaperCrop) {
+        writeCustomNavigationIconCrop(ksuApp, slot, crop)
+    }
 
     override suspend fun getSuCompatStatus(): String = getFeatureStatus("su_compat")
 
@@ -389,6 +566,16 @@ class SettingsRepositoryImpl : SettingsRepository {
     override fun isDefaultUmountModules(): Boolean = Natives.isDefaultUmountModules()
 
     override fun setDefaultUmountModules(enabled: Boolean): Boolean = Natives.setDefaultUmountModules(enabled)
+
+    override suspend fun getBuiltinMountStatus() = readBuiltinMountStatus()
+
+    override fun setBuiltinMountEnabled(enabled: Boolean): Boolean = writeBuiltinMountEnabled(enabled)
+
+    override fun setBuiltinMountDefaultMode(mode: String): Boolean = writeBuiltinMountDefaultMode(mode)
+
+    override suspend fun getEpkesuHideStatus(): Boolean = readEpkesuHideStatus().enabled
+
+    override fun setEpkesuHideEnabled(enabled: Boolean): Boolean = writeEpkesuHideEnabled(enabled)
 
     override fun isLkmMode(): Boolean = Natives.isLkmMode
 

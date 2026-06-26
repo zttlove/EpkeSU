@@ -5,10 +5,9 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.UserManager
 import android.system.Os
-import androidx.lifecycle.ViewModelProvider
+import android.util.Log
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
-import me.weishu.kernelsu.ui.viewmodel.SuperUserViewModel
 import okhttp3.Cache
 import okhttp3.OkHttpClient
 import org.lsposed.hiddenapibypass.HiddenApiBypass
@@ -20,6 +19,8 @@ lateinit var ksuApp: KernelSUApplication
 class KernelSUApplication : Application(), ViewModelStoreOwner {
 
     companion object {
+        private const val TAG = "KernelSUApplication"
+
         fun setEnableOnBackInvokedCallback(appInfo: ApplicationInfo, enable: Boolean) {
             runCatching {
                 val applicationInfoClass = ApplicationInfo::class.java
@@ -40,6 +41,10 @@ class KernelSUApplication : Application(), ViewModelStoreOwner {
         super.onCreate()
         ksuApp = this
 
+        runCatching { Os.setenv("TMPDIR", cacheDir.absolutePath, true) }
+            .onFailure { Log.w(TAG, "set TMPDIR failed", it) }
+        okhttpClient = createOkHttpClient()
+
         if (!isUserUnlocked()) {
             return
         }
@@ -47,32 +52,30 @@ class KernelSUApplication : Application(), ViewModelStoreOwner {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val prefs = this.getSharedPreferences("settings", MODE_PRIVATE)
             val enable = prefs.getBoolean("enable_predictive_back", false)
-            HiddenApiBypass.addHiddenApiExemptions("Landroid/content/pm/ApplicationInfo;->setEnableOnBackInvokedCallback")
-            setEnableOnBackInvokedCallback(applicationInfo, enable)
+            runCatching {
+                HiddenApiBypass.addHiddenApiExemptions("Landroid/content/pm/ApplicationInfo;->setEnableOnBackInvokedCallback")
+                setEnableOnBackInvokedCallback(applicationInfo, enable)
+            }
         }
-
-        val superUserViewModel = ViewModelProvider(this)[SuperUserViewModel::class.java]
-        superUserViewModel.loadAppList()
 
         val webroot = File(dataDir, "webroot")
         if (!webroot.exists()) {
-            webroot.mkdir()
+            runCatching { webroot.mkdir() }
+                .onFailure { Log.w(TAG, "create webroot failed", it) }
         }
-
-        // Provide working env for rust's temp_dir()
-        Os.setenv("TMPDIR", cacheDir.absolutePath, true)
-
-        okhttpClient =
-            OkHttpClient.Builder().cache(Cache(File(cacheDir, "okhttp"), 10 * 1024 * 1024))
-                .addInterceptor { block ->
-                    block.proceed(
-                        block.request().newBuilder()
-                            .header("User-Agent", "KernelSU/${BuildConfig.VERSION_CODE}")
-                            .header("Accept-Language", Locale.getDefault().toLanguageTag()).build()
-                    )
-                }.build()
     }
 
     override val viewModelStore: ViewModelStore
         get() = appViewModelStore
+
+    private fun createOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder().cache(Cache(File(cacheDir, "okhttp"), 10 * 1024 * 1024))
+            .addInterceptor { block ->
+                block.proceed(
+                    block.request().newBuilder()
+                        .header("User-Agent", "KernelSU/${BuildConfig.VERSION_CODE}")
+                        .header("Accept-Language", Locale.getDefault().toLanguageTag()).build()
+                )
+            }.build()
+    }
 }

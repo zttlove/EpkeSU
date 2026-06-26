@@ -18,6 +18,9 @@ use regex_lite::Regex;
 
 use crate::assets;
 
+const MANAGER_CERT_HASH: &[u8] =
+    b"1c89980c03432844cfe195dab90bfaecbcd987d19309da648014164be78007d1";
+
 #[cfg(target_os = "android")]
 mod android {
     use super::Result;
@@ -387,6 +390,24 @@ fn enforce_bootimage_version(boot: &BootImage<'_>) -> Result<()> {
     Ok(())
 }
 
+fn enforce_epkesu_lkm_identity(kernelsu_ko: &[u8], source: &str) -> Result<()> {
+    ensure!(
+        kernelsu_ko
+            .windows(MANAGER_CERT_HASH.len())
+            .any(|window| window == MANAGER_CERT_HASH),
+        "{source} does not contain the EpkeSU manager certificate hash; rebuild or patch the LKM assets before patching a boot image"
+    );
+    Ok(())
+}
+
+fn enforce_epkesu_patched_image(cpio: &Cpio, source: &str) -> Result<()> {
+    let kernelsu_ko = cpio
+        .entry_by_name("kernelsu.ko")
+        .and_then(CpioEntry::data)
+        .ok_or_else(|| anyhow!("{source} is not patched by EpkeSU"))?;
+    enforce_epkesu_lkm_identity(kernelsu_ko, &format!("{source} kernelsu.ko"))
+}
+
 #[allow(clippy::struct_excessive_bools)]
 #[derive(clap::Args, Debug)]
 pub struct BootPatchArgs {
@@ -592,11 +613,16 @@ pub fn patch(args: BootPatchArgs) -> Result<()> {
         let kernelsu_ko: Box<dyn AsRef<[u8]>> = if no_install {
             Box::new(Vec::<u8>::new())
         } else if let Some(kmod_path) = kmod {
-            Box::new(map_file(&kmod_path)?)
+            let module_data = map_file(&kmod_path)?;
+            enforce_epkesu_lkm_identity(module_data.as_ref(), &kmod_path.display().to_string())?;
+            Box::new(module_data)
         } else {
             println!("- KMI: {kmi}");
             let name = format!("{kmi}_kernelsu.ko");
-            assets::get_asset(&name).with_context(|| format!("Failed to load {name}"))?
+            let module_data =
+                assets::get_asset_data(&name).with_context(|| format!("Failed to load {name}"))?;
+            enforce_epkesu_lkm_identity(module_data.as_ref(), &name)?;
+            Box::new(module_data)
         };
 
         let ksu_init: Box<dyn AsRef<[u8]>> = if no_install {
@@ -621,8 +647,11 @@ pub fn patch(args: BootPatchArgs) -> Result<()> {
                 "Cannot work with Magisk patched image"
             );
 
-            println!("- Adding KernelSU LKM");
+            println!("- Adding EpkeSU LKM");
             let is_kernelsu_patched = cpio.exists("kernelsu.ko");
+            if is_kernelsu_patched {
+                enforce_epkesu_patched_image(&cpio, "existing boot image")?;
+            }
 
             if !is_kernelsu_patched && cpio.exists("init") {
                 cpio.mv("init", "init.real")?;
@@ -742,7 +771,7 @@ pub fn patch(args: BootPatchArgs) -> Result<()> {
             let output_dir = out.unwrap_or(std::env::current_dir()?);
             let name = out_name.unwrap_or_else(|| {
                 let now = chrono::Utc::now();
-                format!("kernelsu_patched_{}.img", now.format("%Y%m%d_%H%M%S"))
+                format!("epkesu_patched_{}.img", now.format("%Y%m%d_%H%M%S"))
             });
             let output_image = output_dir.join(name);
             std::fs::write(&output_image, &new_boot_bytes).context("write out new boot failed")?;
@@ -840,10 +869,7 @@ pub fn restore(args: BootRestoreArgs) -> Result<()> {
             bail!("No compatible ramdisk found.")
         };
 
-    ensure!(
-        cpio.exists("kernelsu.ko"),
-        "boot image is not patched by KernelSU"
-    );
+    enforce_epkesu_patched_image(&cpio, "boot image")?;
 
     #[cfg(target_os = "android")]
     let mut stock_boot: Option<PathBuf> = None;
@@ -911,7 +937,7 @@ pub fn restore(args: BootRestoreArgs) -> Result<()> {
         let output_dir = out.unwrap_or(std::env::current_dir()?);
         let name = out_name.unwrap_or_else(|| {
             let now = chrono::Utc::now();
-            format!("kernelsu_restore_{}.img", now.format("%Y%m%d_%H%M%S"))
+            format!("epkesu_restore_{}.img", now.format("%Y%m%d_%H%M%S"))
         });
         let output_image = output_dir.join(name);
         std::fs::write(&output_image, &new_boot_bytes).context("copy out new boot failed")?;
@@ -928,7 +954,7 @@ fn rebuild_without_ksu(
     cpio: &mut Cpio,
     vendor_ramdisk_idx: Option<usize>,
 ) -> Result<Vec<u8>> {
-    println!("- Removing KernelSU from boot image");
+    println!("- Removing EpkeSU from boot image");
     cpio.rm("kernelsu.ko", false);
     if cpio.exists("init.real") {
         cpio.mv("init.real", "init")?;

@@ -49,10 +49,14 @@ import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_OPACITY_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_PASSTHROUGH_ENABLED_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY_KEY
 import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_URI_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_VIDEO_BACKGROUND_URI_KEY
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_CROP
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
+import me.weishu.kernelsu.ui.util.sanitizeCustomVideoBackgroundDurationSeconds
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperCrop
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperOpacity
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperPassthroughOpacity
@@ -107,6 +111,8 @@ class WebUIActivity : ComponentActivity() {
                 KernelSUTheme(appSettings = appSettings, uiMode = uiMode) {
                     CustomWallpaperRoot(
                         uriString = wallpaperState.uriString,
+                        videoUriString = wallpaperState.videoUriString,
+                        videoDurationSeconds = wallpaperState.videoDurationSeconds,
                         opacity = wallpaperState.opacity,
                         crop = wallpaperState.crop,
                         passthroughEnabled = wallpaperState.passthroughEnabled,
@@ -132,6 +138,8 @@ class WebUIActivity : ComponentActivity() {
 
 private data class WebUiWallpaperState(
     val uriString: String?,
+    val videoUriString: String?,
+    val videoDurationSeconds: Int,
     val opacity: Float,
     val crop: CustomWallpaperCrop,
     val passthroughEnabled: Boolean,
@@ -141,6 +149,13 @@ private data class WebUiWallpaperState(
 private fun readWebUiWallpaperState(prefs: SharedPreferences): WebUiWallpaperState {
     return WebUiWallpaperState(
         uriString = prefs.getString(CUSTOM_WALLPAPER_URI_KEY, null),
+        videoUriString = prefs.getString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, null),
+        videoDurationSeconds = sanitizeCustomVideoBackgroundDurationSeconds(
+            prefs.getInt(
+                CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY,
+                DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS,
+            )
+        ),
         opacity = sanitizeCustomWallpaperOpacity(
             prefs.getFloat(CUSTOM_WALLPAPER_OPACITY_KEY, DEFAULT_CUSTOM_WALLPAPER_OPACITY)
         ),
@@ -182,6 +197,8 @@ private val wallpaperPreferenceKeys = setOf(
     CUSTOM_WALLPAPER_CROP_BOTTOM_KEY,
     CUSTOM_WALLPAPER_PASSTHROUGH_ENABLED_KEY,
     CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY_KEY,
+    CUSTOM_VIDEO_BACKGROUND_URI_KEY,
+    CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY,
 )
 
 @Composable

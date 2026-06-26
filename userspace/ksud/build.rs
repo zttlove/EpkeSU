@@ -31,6 +31,7 @@ fn get_git_version() -> Result<(u32, String), std::io::Error> {
 fn get_fallback_version() -> Option<(u32, String)> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok()?;
     let version_file = Path::new(&manifest_dir).join("../../version.properties");
+    println!("cargo:rerun-if-changed={}", version_file.display());
     let content = fs::read_to_string(version_file).ok()?;
 
     let mut code = None;
@@ -109,18 +110,16 @@ fn assert_release_assets() {
 }
 
 fn main() {
-    let (code, name) = match get_git_version() {
-        Ok((code, name)) => (code, name),
-        Err(_) => {
-            if let Some((code, name)) = get_fallback_version() {
-                println!("cargo:warning=Failed to get git version, using version.properties");
-                (code, name)
-            } else {
+    let (code, name) = match get_fallback_version() {
+        Some((code, name)) => (code, name),
+        None => match get_git_version() {
+            Ok((code, name)) => (code, name),
+            Err(_) => {
                 // show warning if git is not installed
                 println!("cargo:warning=Failed to get git version, using 0.0.0");
                 (0, "0.0.0".to_string())
             }
-        }
+        },
     };
 
     assert_release_assets();

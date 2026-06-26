@@ -677,7 +677,7 @@ private fun ModuleShortcutDialog(
                                 .background(Color.White)
                         )
                         Image(
-                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                            painter = painterResource(id = R.mipmap.ic_launcher_foreground),
                             contentDescription = null,
                             contentScale = FixedScale(1.5f)
                         )
@@ -846,11 +846,16 @@ fun ModuleItem(
     var showWallpaperMenu by rememberSaveable(module.id) { mutableStateOf(false) }
     var showWallpaperCrop by rememberSaveable(module.id) { mutableStateOf(false) }
     var showWallpaperPreview by rememberSaveable(module.id) { mutableStateOf(false) }
-    val wallpaperState = rememberModuleCardWallpaperState(module.id)
-    val wallpaperBitmap = rememberModuleCardWallpaperBitmap(
-        uriString = wallpaperState.uriString,
-        crop = wallpaperState.crop,
+    val context = LocalContext.current
+    val wallpaperState = rememberModuleCardWallpaperState(
+        moduleId = module.id,
+        onWallpaperSelected = { showWallpaperCrop = true },
     )
+    val wallpaperEntry = rememberModuleCardWallpaperFrame(
+        state = wallpaperState,
+        paused = showWallpaperCrop || showWallpaperPreview,
+    )
+    val wallpaperBitmap = rememberModuleCardWallpaperBitmap(wallpaperEntry)
     val hasWallpaper = wallpaperBitmap != null
 
     Card(
@@ -1156,10 +1161,21 @@ fun ModuleItem(
                     ModuleWallpaperMenuMiuix(
                         expanded = showWallpaperMenu,
                         hasWallpaper = wallpaperState.hasSelectedWallpaper,
+                        canPlayCarousel = wallpaperState.canPlayCarousel,
+                        carouselEnabled = wallpaperState.carouselEnabled,
                         onExpandedChange = { showWallpaperMenu = it },
                         onPickWallpaper = wallpaperState.onPickWallpaper,
                         onCropWallpaper = { showWallpaperCrop = true },
                         onPreviewWallpaper = { showWallpaperPreview = true },
+                        onToggleCarousel = wallpaperState.onToggleCarousel,
+                        onSyncThemeStore = {
+                            val message = if (wallpaperState.onSyncThemeStore()) {
+                                R.string.module_wallpaper_sync_theme_store_success
+                            } else {
+                                R.string.module_wallpaper_sync_theme_store_failed
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        },
                         onClearWallpaper = wallpaperState.onClearWallpaper,
                     )
                 }
@@ -1168,9 +1184,9 @@ fun ModuleItem(
     }
 
     SettingsWallpaperCropDialog(
-        show = showWallpaperCrop,
-        uriString = wallpaperState.uriString,
-        crop = wallpaperState.crop,
+        show = showWallpaperCrop && wallpaperEntry != null,
+        uriString = wallpaperEntry?.uriString,
+        crop = wallpaperEntry?.crop ?: wallpaperState.crop,
         onCropChange = wallpaperState.onCropChange,
         onDismissRequest = { showWallpaperCrop = false },
         title = stringResource(R.string.module_wallpaper_crop),
@@ -1180,7 +1196,7 @@ fun ModuleItem(
     ModuleCardWallpaperPreviewDialog(
         show = showWallpaperPreview,
         moduleName = module.name,
-        uriString = wallpaperState.uriString,
+        uriString = wallpaperEntry?.uriString,
         bitmap = wallpaperBitmap,
         onDismissRequest = { showWallpaperPreview = false },
     )
@@ -1190,13 +1206,21 @@ fun ModuleItem(
 private fun ModuleWallpaperMenuMiuix(
     expanded: Boolean,
     hasWallpaper: Boolean,
+    canPlayCarousel: Boolean,
+    carouselEnabled: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onPickWallpaper: () -> Unit,
     onCropWallpaper: () -> Unit,
     onPreviewWallpaper: () -> Unit,
+    onToggleCarousel: () -> Unit,
+    onSyncThemeStore: () -> Unit,
     onClearWallpaper: () -> Unit,
 ) {
-    val optionSize = if (hasWallpaper) 4 else 1
+    val optionSize = when {
+        !hasWallpaper -> 1
+        canPlayCarousel -> 6
+        else -> 5
+    }
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box(
         modifier = Modifier.clickable(
@@ -1236,11 +1260,12 @@ private fun ModuleWallpaperMenuMiuix(
                         },
                     )
                     if (hasWallpaper) {
+                        var optionIndex = 1
                         DropdownImpl(
                             text = stringResource(R.string.module_wallpaper_crop),
                             optionSize = optionSize,
                             isSelected = false,
-                            index = 1,
+                            index = optionIndex++,
                             onSelectedIndexChange = {
                                 onExpandedChange(false)
                                 onCropWallpaper()
@@ -1250,17 +1275,45 @@ private fun ModuleWallpaperMenuMiuix(
                             text = stringResource(R.string.module_wallpaper_preview),
                             optionSize = optionSize,
                             isSelected = false,
-                            index = 2,
+                            index = optionIndex++,
                             onSelectedIndexChange = {
                                 onExpandedChange(false)
                                 onPreviewWallpaper()
+                            },
+                        )
+                        if (canPlayCarousel) {
+                            DropdownImpl(
+                                text = stringResource(
+                                    if (carouselEnabled) {
+                                        R.string.module_wallpaper_carousel_disable
+                                    } else {
+                                        R.string.module_wallpaper_carousel_enable
+                                    }
+                                ),
+                                optionSize = optionSize,
+                                isSelected = carouselEnabled,
+                                index = optionIndex++,
+                                onSelectedIndexChange = {
+                                    onExpandedChange(false)
+                                    onToggleCarousel()
+                                },
+                            )
+                        }
+                        DropdownImpl(
+                            text = stringResource(R.string.module_wallpaper_sync_theme_store),
+                            optionSize = optionSize,
+                            isSelected = false,
+                            index = optionIndex++,
+                            onSelectedIndexChange = {
+                                onExpandedChange(false)
+                                onSyncThemeStore()
                             },
                         )
                         DropdownImpl(
                             text = stringResource(R.string.module_wallpaper_clear),
                             optionSize = optionSize,
                             isSelected = false,
-                            index = 3,
+                            index = optionIndex,
                             onSelectedIndexChange = {
                                 onExpandedChange(false)
                                 onClearWallpaper()

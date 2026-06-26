@@ -1,7 +1,7 @@
 use crate::module::{handle_updated_modules, prune_modules};
 use crate::utils::{is_safe_mode, switch_mnt_ns};
 use crate::{
-    assets, defs, ksucalls, metamodule, restorecon,
+    assets, builtin_mount, defs, ksucalls, metamodule, restorecon,
     utils::{self},
 };
 use anyhow::{Context, Result};
@@ -74,6 +74,10 @@ pub fn on_post_data_fs() -> Result<()> {
 
     if let Err(e) = prune_modules() {
         warn!("prune modules failed: {e}");
+    }
+
+    if let Err(e) = builtin_mount::ensure_active_compat_entry() {
+        warn!("ensure builtin mount compat entry failed: {e}");
     }
 
     // Refresh /metadata/watchdog/ksu/modules.rc so the next boot's kernel hook sees the
@@ -188,6 +192,7 @@ pub fn on_boot_completed() {
     info!("on_boot_completed triggered!");
 
     run_stage("boot-completed", false);
+    crate::epkesu_hide::apply_if_enabled();
 }
 
 const fn resetprop() -> ResetProp {
@@ -197,6 +202,7 @@ const fn resetprop() -> ResetProp {
         persist_only: false,
         verbose: false,
         show_context: false,
+        rebuild: false,
     }
 }
 

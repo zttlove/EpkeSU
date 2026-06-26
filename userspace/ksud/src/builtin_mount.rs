@@ -1,0 +1,479 @@
+use anyhow::{Context, Result, bail};
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    fs,
+    io::Cursor,
+    path::{Path, PathBuf},
+};
+
+use crate::{defs, metamodule, module, utils};
+
+pub const HYBRID_MOUNT_MODULE_ID: &str = "hybrid_mount";
+
+const CONFIG_PATH: &str = "/data/adb/hybrid-mount/config.toml";
+const BUILTIN_ZIP: &[u8] = include_bytes!("../builtin/hybrid-mount-lite.zip");
+const MODULE_NAME_FALLBACK: &str = "Hybrid Mount Lite";
+const MODULE_VERSION_FALLBACK: &str = "4.1.0-1719";
+const MODULE_VERSION_CODE_FALLBACK: &str = "401000";
+const HYBRID_MOUNT_BINARY: &str = "hybrid-mount";
+const COMPAT_MARKER_FILE: &str = ".ksu_builtin_mount_compat";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MountMode {
+    Overlay,
+    Magic,
+}
+
+impl MountMode {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "overlay" => Ok(Self::Overlay),
+            "magic" => Ok(Self::Magic),
+            _ => bail!("unsupported builtin mount mode: {value}"),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Overlay => "overlay",
+            Self::Magic => "magic",
+        }
+    }
+}
+
+pub fn print_status() {
+    let module_dir = module_dir();
+    let installed = is_installed_at(&module_dir);
+    let enabled = is_enabled_at(&module_dir);
+    let conflict = conflicting_metamodule_id();
+    let webui = module_dir.join(defs::MODULE_WEB_DIR).exists();
+    let default_mode = read_default_mode().as_str();
+    let module_prop = read_builtin_module_prop();
+    let module_path = module_dir.display().to_string();
+    let name = module_prop
+        .get("name")
+        .map_or(MODULE_NAME_FALLBACK, String::as_str);
+    let version = module_prop
+        .get("version")
+        .map_or(MODULE_VERSION_FALLBACK, String::as_str);
+    let version_code = module_prop
+        .get("versionCode")
+        .map_or(MODULE_VERSION_CODE_FALLBACK, String::as_str);
+
+    println!(
+        "{}",
+        json!({
+            "moduleId": HYBRID_MOUNT_MODULE_ID,
+            "moduleName": name,
+            "modulePath": module_path,
+            "version": version,
+            "versionCode": version_code,
+            "installed": installed,
+            "enabled": enabled,
+            "conflict": conflict,
+            "defaultMode": default_mode,
+            "webui": webui,
+        })
+    );
+}
+
+pub fn print_default_mode() {
+    println!("{}", read_default_mode().as_str());
+}
+
+pub fn enable() -> Result<()> {
+    ensure_no_conflicting_metamodule()?;
+
+    let module_dir = module_dir();
+    let mode = read_default_mode();
+    write_default_mode(mode)?;
+    remove_builtin_symlink_if_active()?;
+    install_or_update_builtin_module(&module_dir)?;
+    cleanup_legacy_module_dirs()?;
+    remove_disable_marker(&module_dir)?;
+    ensure_compat_module_entry(&module_dir)?;
+    metamodule::ensure_symlink(&module_dir)?;
+
+    if !Path::new(CONFIG_PATH).exists() {
+        write_default_mode(mode)?;
+    }
+    if let Err(e) = module::regenerate_preinit_rc() {
+        log::warn!("regenerate preinit rc failed: {e}");
+    }
+    Ok(())
+}
+
+pub fn disable() -> Result<()> {
+    let module_dir = module_dir();
+    remove_compat_module_entry_if_owned()?;
+    if is_same_path_as_active_metamodule(&module_dir) || metamodule_symlink_points_to(&module_dir) {
+        metamodule::remove_symlink()?;
+    }
+    if module_dir.exists() {
+        utils::ensure_file_exists(module_dir.join(defs::DISABLE_FILE_NAME))?;
+    }
+    if let Err(e) = module::regenerate_preinit_rc() {
+        log::warn!("regenerate preinit rc failed: {e}");
+    }
+    Ok(())
+}
+
+pub fn set_default_mode(mode: MountMode) -> Result<()> {
+    write_default_mode(mode)
+}
+
+pub fn ensure_active_compat_entry() -> Result<()> {
+    let module_dir = module_dir();
+    if is_enabled_at(&module_dir) {
+        ensure_compat_module_entry(&module_dir)?;
+    } else {
+        remove_compat_module_entry_if_owned()?;
+    }
+    Ok(())
+}
+
+pub fn is_compat_module_entry(path: &Path) -> bool {
+    path.join(COMPAT_MARKER_FILE).exists()
+        || (is_same_path(path, &legacy_module_dir())
+            && is_same_path_as_active_metamodule(&module_dir()))
+}
+
+fn module_dir() -> PathBuf {
+    Path::new(defs::WORKING_DIR)
+        .join("builtin")
+        .join(HYBRID_MOUNT_MODULE_ID)
+}
+
+fn legacy_module_dir() -> PathBuf {
+    Path::new(defs::MODULE_DIR).join(HYBRID_MOUNT_MODULE_ID)
+}
+
+fn legacy_update_dir() -> PathBuf {
+    Path::new(defs::MODULE_UPDATE_DIR).join(HYBRID_MOUNT_MODULE_ID)
+}
+
+fn is_installed_at(module_dir: &Path) -> bool {
+    module_dir.join("module.prop").exists()
+}
+
+fn is_enabled_at(module_dir: &Path) -> bool {
+    is_installed_at(module_dir)
+        && !module_dir.join(defs::DISABLE_FILE_NAME).exists()
+        && is_same_path_as_active_metamodule(module_dir)
+}
+
+fn ensure_no_conflicting_metamodule() -> Result<()> {
+    if let Some(id) = conflicting_metamodule_id() {
+        bail!("another metamodule is already active: {id}");
+    }
+    Ok(())
+}
+
+fn conflicting_metamodule_id() -> Option<String> {
+    let metamodule_path = metamodule::get_metamodule_path()?;
+    if is_same_path(&metamodule_path, &module_dir()) {
+        return None;
+    }
+
+    let id = module::read_module_prop(&metamodule_path)
+        .ok()
+        .and_then(|props| props.get("id").cloned())
+        .or_else(|| {
+            metamodule_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(ToString::to_string)
+        })?;
+
+    (id != HYBRID_MOUNT_MODULE_ID).then_some(id)
+}
+
+fn install_or_update_builtin_module(module_dir: &Path) -> Result<()> {
+    let parent = module_dir
+        .parent()
+        .with_context(|| format!("{} has no parent", module_dir.display()))?;
+    utils::ensure_dir_exists(parent)?;
+
+    let tmp_dir = parent.join(format!("{HYBRID_MOUNT_MODULE_ID}.tmp"));
+    utils::ensure_clean_dir(&tmp_dir)?;
+
+    let mut archive = zip::ZipArchive::new(Cursor::new(BUILTIN_ZIP))
+        .with_context(|| "failed to open builtin mount archive")?;
+    archive
+        .extract(&tmp_dir)
+        .with_context(|| format!("failed to extract builtin mount to {}", tmp_dir.display()))?;
+
+    prepare_extracted_builtin_module(&tmp_dir)?;
+
+    if module_dir.exists() || module_dir.is_symlink() {
+        remove_path(module_dir)?;
+    }
+    fs::rename(&tmp_dir, module_dir).with_context(|| {
+        format!(
+            "failed to replace builtin mount dir {} with {}",
+            module_dir.display(),
+            tmp_dir.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn prepare_extracted_builtin_module(module_dir: &Path) -> Result<()> {
+    let binary_source = module_dir.join("binaries").join(HYBRID_MOUNT_BINARY);
+    let binary_target = module_dir.join(HYBRID_MOUNT_BINARY);
+    fs::copy(&binary_source, &binary_target).with_context(|| {
+        format!(
+            "failed to copy {} to {}",
+            binary_source.display(),
+            binary_target.display()
+        )
+    })?;
+
+    remove_path_if_exists(&module_dir.join("binaries"))?;
+    remove_path_if_exists(&module_dir.join("system"))?;
+    set_builtin_permissions(module_dir)?;
+    Ok(())
+}
+
+fn set_builtin_permissions(module_dir: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        fn visit(path: &Path) -> Result<()> {
+            let metadata = fs::symlink_metadata(path)
+                .with_context(|| format!("failed to stat {}", path.display()))?;
+            let mode = if metadata.is_dir() { 0o755 } else { 0o644 };
+            fs::set_permissions(path, fs::Permissions::from_mode(mode))
+                .with_context(|| format!("failed to chmod {}", path.display()))?;
+
+            if metadata.is_dir() {
+                for entry in fs::read_dir(path)
+                    .with_context(|| format!("failed to read dir {}", path.display()))?
+                {
+                    visit(&entry?.path())?;
+                }
+            }
+            Ok(())
+        }
+
+        visit(module_dir)?;
+        fs::set_permissions(
+            module_dir.join(HYBRID_MOUNT_BINARY),
+            fs::Permissions::from_mode(0o755),
+        )
+        .with_context(|| "failed to chmod builtin hybrid-mount binary")?;
+    }
+    Ok(())
+}
+
+fn remove_disable_marker(module_dir: &Path) -> Result<()> {
+    let disable = module_dir.join(defs::DISABLE_FILE_NAME);
+    if disable.exists() {
+        fs::remove_file(&disable)
+            .with_context(|| format!("failed to remove {}", disable.display()))?;
+    }
+    Ok(())
+}
+
+fn remove_builtin_symlink_if_active() -> Result<()> {
+    let module_dir = module_dir();
+    if is_same_path_as_active_metamodule(&module_dir) || metamodule_symlink_points_to(&module_dir) {
+        metamodule::remove_symlink()?;
+    }
+    Ok(())
+}
+
+fn cleanup_legacy_module_dirs() -> Result<()> {
+    remove_path_if_exists(&legacy_module_dir())?;
+    remove_path_if_exists(&legacy_update_dir())?;
+    Ok(())
+}
+
+fn ensure_compat_module_entry(module_dir: &Path) -> Result<()> {
+    let compat_dir = legacy_module_dir();
+    if compat_dir.exists() || compat_dir.is_symlink() {
+        remove_path(&compat_dir)?;
+    }
+
+    utils::ensure_dir_exists(&compat_dir)?;
+
+    let binary = module_dir.join(HYBRID_MOUNT_BINARY);
+    let wrapper = compat_dir.join(HYBRID_MOUNT_BINARY);
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/system/bin/sh\nexec {} \"$@\"\n",
+            shell_single_quote(&binary.display().to_string())
+        ),
+    )
+    .with_context(|| format!("failed to write {}", wrapper.display()))?;
+    fs::copy(
+        module_dir.join("module.prop"),
+        compat_dir.join("module.prop"),
+    )
+    .with_context(|| "failed to copy builtin mount module.prop to compat entry")?;
+    utils::ensure_file_exists(compat_dir.join(COMPAT_MARKER_FILE))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(&compat_dir, fs::Permissions::from_mode(0o755))
+            .with_context(|| format!("failed to chmod {}", compat_dir.display()))?;
+        fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))
+            .with_context(|| format!("failed to chmod {}", wrapper.display()))?;
+
+        let kasumi_lkm = module_dir.join("kasumi_lkm");
+        if kasumi_lkm.exists() {
+            std::os::unix::fs::symlink(&kasumi_lkm, compat_dir.join("kasumi_lkm"))
+                .with_context(|| "failed to create builtin mount kasumi_lkm compat symlink")?;
+        }
+    }
+
+    Ok(())
+}
+
+fn remove_compat_module_entry_if_owned() -> Result<()> {
+    let compat_dir = legacy_module_dir();
+    let owned = compat_dir.join(COMPAT_MARKER_FILE).exists()
+        || is_same_path_as_active_metamodule(&module_dir())
+        || compat_dir.is_symlink();
+    if owned && (compat_dir.exists() || compat_dir.is_symlink()) {
+        remove_path_if_exists(&compat_dir)?;
+    }
+    Ok(())
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn remove_path_if_exists(path: &Path) -> Result<()> {
+    if path.exists() || path.is_symlink() {
+        remove_path(path)?;
+    }
+    Ok(())
+}
+
+fn remove_path(path: &Path) -> Result<()> {
+    if path.is_symlink() || path.is_file() {
+        fs::remove_file(path).with_context(|| format!("failed to remove {}", path.display()))?;
+    } else {
+        fs::remove_dir_all(path).with_context(|| format!("failed to remove {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn is_same_path_as_active_metamodule(path: &Path) -> bool {
+    metamodule::get_metamodule_path()
+        .is_some_and(|metamodule_path| is_same_path(path, &metamodule_path))
+}
+
+fn metamodule_symlink_points_to(path: &Path) -> bool {
+    let symlink = Path::new(defs::METAMODULE_DIR.trim_end_matches('/'));
+    let Ok(target) = fs::read_link(symlink) else {
+        return false;
+    };
+    let target = if target.is_absolute() {
+        target
+    } else {
+        symlink
+            .parent()
+            .unwrap_or_else(|| Path::new("/"))
+            .join(target)
+    };
+    is_same_path(&target, path)
+}
+
+fn is_same_path(left: &Path, right: &Path) -> bool {
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
+}
+
+fn read_builtin_module_prop() -> HashMap<String, String> {
+    module::read_module_prop(&module_dir()).unwrap_or_default()
+}
+
+fn read_default_mode() -> MountMode {
+    let Ok(content) = fs::read_to_string(CONFIG_PATH) else {
+        return MountMode::Overlay;
+    };
+
+    content
+        .lines()
+        .find_map(parse_default_mode_line)
+        .unwrap_or(MountMode::Overlay)
+}
+
+fn parse_default_mode_line(line: &str) -> Option<MountMode> {
+    let trimmed = line.trim();
+    if trimmed.starts_with('#') {
+        return None;
+    }
+    let (key, value) = trimmed.split_once('=')?;
+    if key.trim() != "default_mode" {
+        return None;
+    }
+    let value = value.trim().trim_matches('"').trim_matches('\'');
+    MountMode::parse(value).ok()
+}
+
+fn write_default_mode(mode: MountMode) -> Result<()> {
+    let config = Path::new(CONFIG_PATH);
+    let parent = config
+        .parent()
+        .with_context(|| format!("{} has no parent", config.display()))?;
+    utils::ensure_dir_exists(parent)?;
+
+    let content = fs::read_to_string(config).unwrap_or_else(|_| default_config(mode));
+    let mut found = false;
+    let mut output = String::new();
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        let is_default_mode = trimmed
+            .split_once('=')
+            .is_some_and(|(key, _)| key.trim() == "default_mode");
+        if is_default_mode {
+            output.push_str("default_mode = \"");
+            output.push_str(mode.as_str());
+            output.push_str("\"\n");
+            found = true;
+        } else {
+            output.push_str(line);
+            output.push('\n');
+        }
+    }
+    if !found {
+        output.push_str("default_mode = \"");
+        output.push_str(mode.as_str());
+        output.push_str("\"\n");
+    }
+
+    let tmp = config.with_extension("toml.tmp");
+    fs::write(&tmp, output)
+        .with_context(|| format!("failed to write temp config {}", tmp.display()))?;
+    fs::rename(&tmp, config).with_context(|| {
+        format!(
+            "failed to replace config {} with {}",
+            config.display(),
+            tmp.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn default_config(mode: MountMode) -> String {
+    format!(
+        "default_mode = \"{}\"\n\
+         disable_umount = false\n\
+         enable_overlay_fallback = false\n\
+         moduledir = \"/data/adb/modules\"\n\
+         mountsource = \"KSU\"\n\
+         overlay_mode = \"ext4\"\n",
+        mode.as_str()
+    )
+}

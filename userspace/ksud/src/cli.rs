@@ -8,11 +8,9 @@ use log::{LevelFilter, error, info};
 use crate::boot_patch::{BootPatchArgs, BootRestoreArgs};
 use crate::module::regenerate_preinit_rc;
 use crate::{
-    apk_sign, assets, debug, defs, init_event, ksu_uapi, ksucalls, module, module_config, sulog,
-    utils,
+    apk_sign, assets, builtin_mount, debug, defs, epkesu_hide, init_event, ksu_uapi, ksucalls,
+    module, module_config, sulog, utils,
 };
-
-const DEFAULT_MANAGER_PACKAGE: &str = "io.github.fixz.epkesu";
 
 /// KernelSU userspace cli
 #[derive(Parser, Debug)]
@@ -28,6 +26,18 @@ enum Commands {
     Module {
         #[command(subcommand)]
         command: Module,
+    },
+
+    /// Manage built-in Hybrid Mount Lite
+    BuiltinMount {
+        #[command(subcommand)]
+        command: BuiltinMount,
+    },
+
+    /// Manage EpkeSU Hide
+    EpkesuHide {
+        #[command(subcommand)]
+        command: EpkesuHide,
     },
 
     /// Trigger `post-fs-data` event
@@ -62,8 +72,12 @@ enum Commands {
         kmi: Option<String>,
 
         /// manager package name
-        #[arg(long, default_value_t = String::from(DEFAULT_MANAGER_PACKAGE))]
+        #[arg(long, default_value_t = String::from(defs::DEFAULT_MANAGER_PACKAGE))]
         package_name: String,
+
+        /// manager uid supplied by app zygote preload
+        #[arg(long)]
+        manager_uid: Option<u32>,
     },
 
     /// Emulate system reboot
@@ -89,7 +103,7 @@ enum Commands {
 
     /// Uninstall KernelSU modules and itself(LKM Only)
     Uninstall {
-        #[arg(long, default_value_t = String::from(DEFAULT_MANAGER_PACKAGE))]
+        #[arg(long, default_value_t = String::from(defs::DEFAULT_MANAGER_PACKAGE))]
         package_name: String,
     },
 
@@ -178,7 +192,7 @@ enum Debug {
     /// Set the manager app, kernel CONFIG_KSU_DEBUG should be enabled.
     SetManager {
         /// manager package name
-        #[arg(default_value_t = String::from(DEFAULT_MANAGER_PACKAGE))]
+        #[arg(default_value_t = String::from(defs::DEFAULT_MANAGER_PACKAGE))]
         apk: String,
     },
 
@@ -361,6 +375,42 @@ enum ModuleConfigCmd {
         #[arg(short, long)]
         temp: bool,
     },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum BuiltinMount {
+    /// Print built-in mount status as JSON
+    Status,
+
+    /// Install or enable built-in Hybrid Mount Lite
+    Enable,
+
+    /// Disable built-in Hybrid Mount Lite
+    Disable,
+
+    /// Print the global default mount mode
+    GetDefaultMode,
+
+    /// Set the global default mount mode: overlay or magic
+    SetDefaultMode {
+        /// overlay or magic
+        mode: String,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum EpkesuHide {
+    /// Print EpkeSU Hide status as JSON
+    Status,
+
+    /// Enable EpkeSU Hide and apply it now
+    Enable,
+
+    /// Disable EpkeSU Hide
+    Disable,
+
+    /// Apply EpkeSU Hide property changes now
+    Apply,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -614,6 +664,37 @@ pub fn run() -> Result<()> {
                 }
             }
         }
+        Commands::BuiltinMount { command } => {
+            utils::switch_mnt_ns(1)?;
+            match command {
+                BuiltinMount::Status => {
+                    builtin_mount::print_status();
+                    Ok(())
+                }
+                BuiltinMount::Enable => builtin_mount::enable(),
+                BuiltinMount::Disable => builtin_mount::disable(),
+                BuiltinMount::GetDefaultMode => {
+                    builtin_mount::print_default_mode();
+                    Ok(())
+                }
+                BuiltinMount::SetDefaultMode { mode } => {
+                    let mode = builtin_mount::MountMode::parse(&mode)?;
+                    builtin_mount::set_default_mode(mode)
+                }
+            }
+        }
+        Commands::EpkesuHide { command } => {
+            utils::switch_mnt_ns(1)?;
+            match command {
+                EpkesuHide::Status => {
+                    epkesu_hide::print_status();
+                    Ok(())
+                }
+                EpkesuHide::Enable => epkesu_hide::enable(),
+                EpkesuHide::Disable => epkesu_hide::disable(),
+                EpkesuHide::Apply => epkesu_hide::apply(),
+            }
+        }
         Commands::Install { libadbroot } => utils::install(libadbroot),
         Commands::Unload => crate::unload::unload(),
         Commands::Uninstall { package_name } => utils::uninstall(&package_name),
@@ -628,14 +709,17 @@ pub fn run() -> Result<()> {
             post_magica,
             kmi,
             package_name,
+            manager_uid,
         } => {
             if let Some(port) = magica {
-                return crate::magica::run(port, &package_name, allow_shell).map_err(|e| {
-                    error!("Error running magica: {e}");
-                    e
-                });
+                return crate::magica::run(port, &package_name, manager_uid, allow_shell).map_err(
+                    |e| {
+                        error!("Error running magica: {e}");
+                        e
+                    },
+                );
             }
-            let result = crate::late_load::run(&package_name, kmi, allow_shell);
+            let result = crate::late_load::run(&package_name, manager_uid, kmi, allow_shell);
             if post_magica {
                 info!("Restoring adb properties (post-magica cleanup)...");
                 if let Err(e) = crate::magica::disable_adb_root() {

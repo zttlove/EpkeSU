@@ -69,6 +69,30 @@ enum class LauncherIconOption(
         aliasClassName = "${LAUNCHER_ALIAS_PACKAGE}.LauncherAnimePinkHair",
         labelRes = R.string.settings_app_icon_anime_pink_hair,
         foregroundRes = R.mipmap.anime_pink_hair_foreground,
+    ),
+    FoxMask(
+        value = "fox_mask",
+        aliasClassName = "${LAUNCHER_ALIAS_PACKAGE}.LauncherFoxMask",
+        labelRes = R.string.settings_app_icon_fox_mask,
+        foregroundRes = R.mipmap.fox_mask_foreground,
+    ),
+    OperaMask(
+        value = "opera_mask",
+        aliasClassName = "${LAUNCHER_ALIAS_PACKAGE}.LauncherOperaMask",
+        labelRes = R.string.settings_app_icon_opera_mask,
+        foregroundRes = R.mipmap.opera_mask_foreground,
+    ),
+    SkRoot(
+        value = "sk_root",
+        aliasClassName = "${LAUNCHER_ALIAS_PACKAGE}.LauncherSkRoot",
+        labelRes = R.string.settings_app_icon_sk_root,
+        foregroundRes = R.mipmap.sk_root_foreground,
+    ),
+    GridMark(
+        value = "grid_mark",
+        aliasClassName = "${LAUNCHER_ALIAS_PACKAGE}.LauncherGridMark",
+        labelRes = R.string.settings_app_icon_grid_mark,
+        foregroundRes = R.mipmap.grid_mark_foreground,
     );
 
     companion object {

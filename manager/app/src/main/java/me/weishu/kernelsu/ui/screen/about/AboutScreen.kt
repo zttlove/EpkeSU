@@ -44,8 +44,8 @@ fun AboutScreen() {
     }
 }
 
-private const val GITHUB_URL = "https://github.com/tiann/KernelSU"
-private const val TELEGRAM_URL = "https://t.me/KernelSU"
+private const val GITHUB_URL = "https://github.com/shengzimao/EpkeSU"
+private const val TELEGRAM_URL = "https://t.me/+vIE0TtF9xxgyYzQ1"
 
 private fun defaultAboutLinksHtml(githubLink: String, telegramLink: String): String {
     return "View source code at $githubLink<br/>Join our $telegramLink channel"

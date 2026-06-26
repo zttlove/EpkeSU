@@ -575,7 +575,7 @@ private fun ModuleShortcutSheet(
                             .background(Color.White)
                     )
                     Image(
-                        painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                        painter = painterResource(id = R.mipmap.ic_launcher_foreground),
                         contentDescription = null,
                         contentScale = FixedScale(1.5f)
                     )
@@ -665,11 +665,16 @@ private fun ModuleItem(
     var showWallpaperMenu by rememberSaveable(module.id) { mutableStateOf(false) }
     var showWallpaperCrop by rememberSaveable(module.id) { mutableStateOf(false) }
     var showWallpaperPreview by rememberSaveable(module.id) { mutableStateOf(false) }
-    val wallpaperState = rememberModuleCardWallpaperState(module.id)
-    val wallpaperBitmap = rememberModuleCardWallpaperBitmap(
-        uriString = wallpaperState.uriString,
-        crop = wallpaperState.crop,
+    val context = LocalContext.current
+    val wallpaperState = rememberModuleCardWallpaperState(
+        moduleId = module.id,
+        onWallpaperSelected = { showWallpaperCrop = true },
     )
+    val wallpaperEntry = rememberModuleCardWallpaperFrame(
+        state = wallpaperState,
+        paused = showWallpaperCrop || showWallpaperPreview,
+    )
+    val wallpaperBitmap = rememberModuleCardWallpaperBitmap(wallpaperEntry)
 
     TonalCard(
         modifier = Modifier.fillMaxWidth()
@@ -945,10 +950,21 @@ private fun ModuleItem(
                     ModuleWallpaperMenuMaterial(
                         expanded = showWallpaperMenu,
                         hasWallpaper = wallpaperState.hasSelectedWallpaper,
+                        canPlayCarousel = wallpaperState.canPlayCarousel,
+                        carouselEnabled = wallpaperState.carouselEnabled,
                         onExpandedChange = { showWallpaperMenu = it },
                         onPickWallpaper = wallpaperState.onPickWallpaper,
                         onCropWallpaper = { showWallpaperCrop = true },
                         onPreviewWallpaper = { showWallpaperPreview = true },
+                        onToggleCarousel = wallpaperState.onToggleCarousel,
+                        onSyncThemeStore = {
+                            val message = if (wallpaperState.onSyncThemeStore()) {
+                                R.string.module_wallpaper_sync_theme_store_success
+                            } else {
+                                R.string.module_wallpaper_sync_theme_store_failed
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        },
                         onClearWallpaper = wallpaperState.onClearWallpaper,
                     )
                 }
@@ -957,9 +973,9 @@ private fun ModuleItem(
     }
 
     SettingsWallpaperCropDialog(
-        show = showWallpaperCrop,
-        uriString = wallpaperState.uriString,
-        crop = wallpaperState.crop,
+        show = showWallpaperCrop && wallpaperEntry != null,
+        uriString = wallpaperEntry?.uriString,
+        crop = wallpaperEntry?.crop ?: wallpaperState.crop,
         onCropChange = wallpaperState.onCropChange,
         onDismissRequest = { showWallpaperCrop = false },
         title = stringResource(R.string.module_wallpaper_crop),
@@ -969,7 +985,7 @@ private fun ModuleItem(
     ModuleCardWallpaperPreviewDialog(
         show = showWallpaperPreview,
         moduleName = module.name,
-        uriString = wallpaperState.uriString,
+        uriString = wallpaperEntry?.uriString,
         bitmap = wallpaperBitmap,
         onDismissRequest = { showWallpaperPreview = false },
     )
@@ -979,10 +995,14 @@ private fun ModuleItem(
 private fun ModuleWallpaperMenuMaterial(
     expanded: Boolean,
     hasWallpaper: Boolean,
+    canPlayCarousel: Boolean,
+    carouselEnabled: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onPickWallpaper: () -> Unit,
     onCropWallpaper: () -> Unit,
     onPreviewWallpaper: () -> Unit,
+    onToggleCarousel: () -> Unit,
+    onSyncThemeStore: () -> Unit,
     onClearWallpaper: () -> Unit,
 ) {
     Box {
@@ -1016,6 +1036,33 @@ private fun ModuleWallpaperMenuMaterial(
                     onClick = {
                         onExpandedChange(false)
                         onPreviewWallpaper()
+                    },
+                )
+                if (canPlayCarousel) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(
+                                    if (carouselEnabled) {
+                                        R.string.module_wallpaper_carousel_disable
+                                    } else {
+                                        R.string.module_wallpaper_carousel_enable
+                                    }
+                                )
+                            )
+                        },
+                        trailingIcon = { Checkbox(carouselEnabled, null) },
+                        onClick = {
+                            onExpandedChange(false)
+                            onToggleCarousel()
+                        },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.module_wallpaper_sync_theme_store)) },
+                    onClick = {
+                        onExpandedChange(false)
+                        onSyncThemeStore()
                     },
                 )
                 DropdownMenuItem(

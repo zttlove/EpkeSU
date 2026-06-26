@@ -87,7 +87,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.KernelVersion
 import me.weishu.kernelsu.R
+import me.weishu.kernelsu.ui.component.CustomVideoBackground
 import me.weishu.kernelsu.ui.component.ListPopupDefaults
+import me.weishu.kernelsu.ui.component.rememberCustomVideoFrameBitmap
 import me.weishu.kernelsu.ui.component.liquid.globalLiquidGlassButton
 import me.weishu.kernelsu.ui.component.liquid.globalLiquidGlassSurface
 import me.weishu.kernelsu.ui.component.liquid.isLiquidGlassTheme
@@ -104,10 +106,12 @@ import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_CROP
 import me.weishu.kernelsu.ui.util.loadCustomImageBitmap
 import me.weishu.kernelsu.ui.util.persistCustomImageReference
+import me.weishu.kernelsu.ui.util.releasePersistableVideoBackgroundReadPermission
 import me.weishu.kernelsu.ui.util.releaseCustomImageReference
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperCrop
 import me.weishu.kernelsu.ui.util.takePersistableImageReadPermission
+import me.weishu.kernelsu.ui.util.takePersistableVideoBackgroundReadPermission
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -258,17 +262,15 @@ private fun ActivatedStatusCard(
             true -> "LKM"
             else -> "GKI"
         }
-        var showWallpaperPreview by remember { mutableStateOf(false) }
-        var showWallpaperCropEditor by remember { mutableStateOf(false) }
         val wallpaperState = rememberLkmCardWallpaperState(
-            onWallpaperSelected = { showWallpaperCropEditor = true }
+            onWallpaperSelected = {}
         )
         val wallpaperBitmap = rememberLkmCardWallpaperBitmap(
             uriString = if (state.lkmMode == true) wallpaperState.uriString else null,
             crop = wallpaperState.crop,
         )
-        val hasSelectedLkmWallpaper = wallpaperState.uriString != null
-        val hasLkmWallpaper = wallpaperBitmap != null
+        val lkmVideoUriString = if (state.lkmMode == true) wallpaperState.videoUriString else null
+        val hasLkmWallpaper = wallpaperBitmap != null || !lkmVideoUriString.isNullOrBlank()
         val primaryContentColor = if (hasLkmWallpaper) Color.White else colorScheme.onSurface
         val secondaryContentColor = if (hasLkmWallpaper) {
             Color.White.copy(alpha = 0.82f)
@@ -306,7 +308,11 @@ private fun ActivatedStatusCard(
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 if (state.lkmMode == true) {
-                    LkmCardWallpaperBackground(bitmap = wallpaperBitmap)
+                    LkmCardWallpaperBackground(
+                        bitmap = wallpaperBitmap,
+                        videoUriString = lkmVideoUriString,
+                        videoCrop = wallpaperState.crop,
+                    )
                 }
                 Icon(
                     modifier = Modifier
@@ -317,19 +323,6 @@ private fun ActivatedStatusCard(
                     tint = iconTint.copy(alpha = if (hasLkmWallpaper) 0.18f else 0.22f),
                     contentDescription = null
                 )
-                if (state.lkmMode == true) {
-                    LkmCardWallpaperActions(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp),
-                        hasWallpaper = hasLkmWallpaper,
-                        showClear = hasSelectedLkmWallpaper,
-                        onPickWallpaper = wallpaperState.onPickWallpaper,
-                        onEditCrop = { showWallpaperCropEditor = true },
-                        onPreviewWallpaper = { showWallpaperPreview = true },
-                        onClearWallpaper = wallpaperState.onClearWallpaper,
-                    )
-                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -397,27 +390,6 @@ private fun ActivatedStatusCard(
                 }
             }
         }
-        if (state.lkmMode == true) {
-            SettingsWallpaperCropDialog(
-                show = showWallpaperCropEditor && hasSelectedLkmWallpaper,
-                uriString = wallpaperState.uriString,
-                crop = wallpaperState.crop,
-                onCropChange = {
-                    wallpaperState.onCropChange(it)
-                    showWallpaperPreview = true
-                },
-                onDismissRequest = { showWallpaperCropEditor = false },
-                title = stringResource(R.string.home_lkm_wallpaper_crop),
-                editorAspectRatio = LKM_CARD_WALLPAPER_ASPECT_RATIO,
-                cropAspectRatio = LKM_CARD_WALLPAPER_ASPECT_RATIO,
-            )
-            LkmCardWallpaperPreviewDialog(
-                show = showWallpaperPreview && wallpaperBitmap != null,
-                bitmap = wallpaperBitmap,
-                onDismissRequest = { showWallpaperPreview = false },
-            )
-        }
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -442,11 +414,20 @@ private fun ActivatedStatusCard(
 
 private data class LkmCardWallpaperState(
     val uriString: String?,
+    val videoUriString: String?,
     val crop: CustomWallpaperCrop,
     val onPickWallpaper: () -> Unit,
+    val onPickVideoWallpaper: () -> Unit,
     val onCropChange: (CustomWallpaperCrop) -> Unit,
     val onClearWallpaper: () -> Unit,
-)
+) {
+    val hasSelectedWallpaper: Boolean
+        get() = !uriString.isNullOrBlank()
+    val hasSelectedVideoWallpaper: Boolean
+        get() = !videoUriString.isNullOrBlank()
+    val hasSelectedAnyWallpaper: Boolean
+        get() = hasSelectedWallpaper || hasSelectedVideoWallpaper
+}
 
 @Composable
 private fun rememberLkmCardWallpaperState(
@@ -459,6 +440,9 @@ private fun rememberLkmCardWallpaperState(
     }
     var uriString by remember {
         mutableStateOf(prefs.getString(LKM_CARD_WALLPAPER_URI_KEY, null))
+    }
+    var videoUriString by remember {
+        mutableStateOf(prefs.getString(LKM_CARD_WALLPAPER_VIDEO_URI_KEY, null))
     }
     var crop by remember {
         mutableStateOf(readLkmCardWallpaperCrop(prefs))
@@ -474,21 +458,50 @@ private fun rememberLkmCardWallpaperState(
         if (previousUriString != nextUriString) {
             releaseCustomImageReference(context, previousUriString)
         }
+        releasePersistableVideoBackgroundReadPermission(context, videoUriString)
         uriString = nextUriString
+        videoUriString = null
         crop = defaultCrop
         prefs.edit(commit = true) {
             putString(LKM_CARD_WALLPAPER_URI_KEY, nextUriString)
+            remove(LKM_CARD_WALLPAPER_VIDEO_URI_KEY)
             putLkmCardWallpaperCrop(defaultCrop)
         }
         currentOnWallpaperSelected()
     }
+    val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val nextUriString = uri.toString()
+        val previousUriString = uriString
+        val previousVideoUriString = videoUriString
+        takePersistableVideoBackgroundReadPermission(context, uri)
+        releaseCustomImageReference(context, previousUriString)
+        if (previousVideoUriString != nextUriString) {
+            releasePersistableVideoBackgroundReadPermission(context, previousVideoUriString)
+        }
+        uriString = null
+        videoUriString = nextUriString
+        crop = DEFAULT_CUSTOM_WALLPAPER_CROP
+        prefs.edit(commit = true) {
+            remove(LKM_CARD_WALLPAPER_URI_KEY)
+            putLkmCardWallpaperCrop(DEFAULT_CUSTOM_WALLPAPER_CROP)
+            putString(LKM_CARD_WALLPAPER_VIDEO_URI_KEY, nextUriString)
+        }
+        currentOnWallpaperSelected()
+    }
 
-    return remember(uriString, crop, launcher, prefs, context) {
+    return remember(uriString, videoUriString, crop, launcher, videoLauncher, prefs, context) {
         LkmCardWallpaperState(
             uriString = uriString,
+            videoUriString = videoUriString,
             crop = crop,
             onPickWallpaper = {
                 launcher.launch(arrayOf("image/*"))
+            },
+            onPickVideoWallpaper = {
+                videoLauncher.launch(arrayOf("video/*"))
             },
             onCropChange = { nextCrop ->
                 val safeCrop = sanitizeCustomWallpaperCrop(nextCrop)
@@ -499,10 +512,13 @@ private fun rememberLkmCardWallpaperState(
             },
             onClearWallpaper = {
                 releaseCustomImageReference(context, uriString)
+                releasePersistableVideoBackgroundReadPermission(context, videoUriString)
                 uriString = null
+                videoUriString = null
                 crop = DEFAULT_CUSTOM_WALLPAPER_CROP
                 prefs.edit(commit = true) {
                     remove(LKM_CARD_WALLPAPER_URI_KEY)
+                    remove(LKM_CARD_WALLPAPER_VIDEO_URI_KEY)
                     removeLkmCardWallpaperCrop()
                 }
             },
@@ -574,16 +590,30 @@ private fun android.content.SharedPreferences.Editor.removeLkmCardWallpaperCrop(
 }
 
 @Composable
-private fun BoxScope.LkmCardWallpaperBackground(bitmap: Bitmap?) {
-    if (bitmap == null) return
+private fun BoxScope.LkmCardWallpaperBackground(
+    bitmap: Bitmap?,
+    videoUriString: String?,
+    videoCrop: CustomWallpaperCrop = DEFAULT_CUSTOM_WALLPAPER_CROP,
+) {
+    if (bitmap == null && videoUriString.isNullOrBlank()) return
 
-    val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
-    Image(
-        modifier = Modifier.matchParentSize(),
-        bitmap = imageBitmap,
-        contentDescription = null,
-        contentScale = ContentScale.Crop
-    )
+    if (!videoUriString.isNullOrBlank()) {
+        CustomVideoBackground(
+            uriString = videoUriString,
+            drawOverlay = false,
+            crop = videoCrop,
+            touchPassthrough = true,
+            modifier = Modifier.matchParentSize(),
+        )
+    } else if (bitmap != null) {
+        val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+        Image(
+            modifier = Modifier.matchParentSize(),
+            bitmap = imageBitmap,
+            contentDescription = null,
+            contentScale = ContentScale.Crop
+        )
+    }
     Box(
         modifier = Modifier
             .matchParentSize()
@@ -594,8 +624,10 @@ private fun BoxScope.LkmCardWallpaperBackground(bitmap: Bitmap?) {
 @Composable
 private fun LkmCardWallpaperActions(
     hasWallpaper: Boolean,
+    showCrop: Boolean,
     showClear: Boolean,
     onPickWallpaper: () -> Unit,
+    onPickVideoWallpaper: () -> Unit,
     onEditCrop: () -> Unit,
     onPreviewWallpaper: () -> Unit,
     onClearWallpaper: () -> Unit,
@@ -614,7 +646,8 @@ private fun LkmCardWallpaperActions(
     val showTopPopup = remember { mutableStateOf(false) }
     val menuActions = buildList<Pair<String, () -> Unit>> {
         add(stringResource(R.string.home_lkm_wallpaper_pick) to onPickWallpaper)
-        if (showClear) {
+        add(stringResource(R.string.home_lkm_video_wallpaper_pick) to onPickVideoWallpaper)
+        if (showCrop) {
             add(stringResource(R.string.home_lkm_wallpaper_crop) to onEditCrop)
         }
         if (hasWallpaper) {
@@ -666,11 +699,13 @@ private fun LkmCardWallpaperActions(
 private fun LkmCardWallpaperPreviewDialog(
     show: Boolean,
     bitmap: Bitmap?,
+    videoUriString: String?,
+    videoCrop: CustomWallpaperCrop,
     onDismissRequest: () -> Unit,
 ) {
     val imageBitmap = remember(bitmap) { bitmap?.asImageBitmap() }
     OverlayDialog(
-        show = show && imageBitmap != null,
+        show = show && (imageBitmap != null || !videoUriString.isNullOrBlank()),
         title = stringResource(R.string.home_lkm_wallpaper_preview),
         onDismissRequest = onDismissRequest,
         content = {
@@ -681,18 +716,10 @@ private fun LkmCardWallpaperPreviewDialog(
                         .aspectRatio(LKM_CARD_WALLPAPER_ASPECT_RATIO)
                         .clip(RoundedCornerShape(18.dp))
                 ) {
-                    if (imageBitmap != null) {
-                        Image(
-                            modifier = Modifier.fillMaxSize(),
-                            bitmap = imageBitmap,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(Color.Black.copy(alpha = if (isInDarkTheme()) 0.50f else 0.42f))
+                    LkmCardWallpaperBackground(
+                        bitmap = bitmap,
+                        videoUriString = videoUriString,
+                        videoCrop = videoCrop,
                     )
                     Icon(
                         modifier = Modifier
@@ -830,7 +857,7 @@ private fun InstallStatusCard(
                     accentColor = accentColor,
                     actionContentColor = actionContentColor,
                     onInstallClick = actions.onInstallClick,
-                    showJailbreak = state.isSELinuxPermissive,
+                    showJailbreak = true,
                     onJailbreakClick = actions.onJailbreakClick
                 )
             }
@@ -1039,17 +1066,16 @@ private fun MetricCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showWallpaperPreview by remember { mutableStateOf(false) }
-    var showWallpaperCropEditor by remember { mutableStateOf(false) }
     val wallpaperState = rememberHomeMetricCardWallpaperState(
         target = target,
-        onWallpaperSelected = { showWallpaperCropEditor = true }
+        onWallpaperSelected = {}
     )
     val wallpaperBitmap = rememberHomeMetricCardWallpaperBitmap(
         uriString = wallpaperState.uriString,
         crop = wallpaperState.crop,
     )
-    val hasWallpaper = wallpaperBitmap != null
+    val videoUriString = wallpaperState.videoUriString
+    val hasWallpaper = wallpaperBitmap != null || !videoUriString.isNullOrBlank()
     val contentColor = if (hasWallpaper) Color.White else colorScheme.onSurface
     val summaryColor = if (hasWallpaper) {
         Color.White.copy(alpha = 0.82f)
@@ -1066,18 +1092,10 @@ private fun MetricCard(
         pressFeedbackType = PressFeedbackType.Tilt
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-            HomeMetricCardWallpaperBackground(bitmap = wallpaperBitmap)
-            MetricCardWallpaperActions(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-                target = target,
-                hasWallpaper = hasWallpaper,
-                showClear = wallpaperState.hasSelectedWallpaper,
-                onPickWallpaper = wallpaperState.onPickWallpaper,
-                onEditCrop = { showWallpaperCropEditor = true },
-                onPreviewWallpaper = { showWallpaperPreview = true },
-                onClearWallpaper = wallpaperState.onClearWallpaper,
+            HomeMetricCardWallpaperBackground(
+                bitmap = wallpaperBitmap,
+                videoUriString = videoUriString,
+                videoCrop = wallpaperState.crop,
             )
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -1086,7 +1104,7 @@ private fun MetricCard(
                 Text(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, top = 16.dp, end = 52.dp),
+                        .padding(start = 16.dp, top = 16.dp, end = 16.dp),
                     text = title,
                     fontWeight = FontWeight.Medium,
                     fontSize = 15.sp,
@@ -1109,27 +1127,6 @@ private fun MetricCard(
             }
         }
     }
-    SettingsWallpaperCropDialog(
-        show = showWallpaperCropEditor && wallpaperState.hasSelectedWallpaper,
-        uriString = wallpaperState.uriString,
-        crop = wallpaperState.crop,
-        onCropChange = {
-            wallpaperState.onCropChange(it)
-            showWallpaperPreview = true
-        },
-        onDismissRequest = { showWallpaperCropEditor = false },
-        title = stringResource(target.cropLabelRes),
-        editorAspectRatio = target.aspectRatio,
-        cropAspectRatio = target.aspectRatio,
-    )
-    MetricCardWallpaperPreviewDialog(
-        show = showWallpaperPreview && wallpaperBitmap != null,
-        target = target,
-        bitmap = wallpaperBitmap,
-        title = title,
-        value = value,
-        onDismissRequest = { showWallpaperPreview = false },
-    )
 }
 
 @Composable
@@ -1442,21 +1439,17 @@ private fun InfoCard(systemInfo: SystemInfo) {
     val scope = rememberCoroutineScope()
     val copiedText = stringResource(R.string.home_copied_to_clipboard)
     var fingerprintExpanded by remember { mutableStateOf(false) }
-    var showStatusWallpaperPreview by remember { mutableStateOf(false) }
-    var showStatusWallpaperCropEditor by remember { mutableStateOf(false) }
     val statusWallpaperState = rememberHomeMetricCardWallpaperState(
         target = HomeMetricCardWallpaperTarget.StatusMonitor,
-        onWallpaperSelected = { showStatusWallpaperCropEditor = true }
+        onWallpaperSelected = {}
     )
     val statusWallpaperBitmap = rememberHomeMetricCardWallpaperBitmap(
         uriString = statusWallpaperState.uriString,
         crop = statusWallpaperState.crop,
     )
-    var showSystemInfoWallpaperPreview by remember { mutableStateOf(false) }
-    var showSystemInfoWallpaperCropEditor by remember { mutableStateOf(false) }
     val systemInfoWallpaperState = rememberHomeMetricCardWallpaperState(
         target = HomeMetricCardWallpaperTarget.SystemInfo,
-        onWallpaperSelected = { showSystemInfoWallpaperCropEditor = true }
+        onWallpaperSelected = {}
     )
     val systemInfoWallpaperBitmap = rememberHomeMetricCardWallpaperBitmap(
         uriString = systemInfoWallpaperState.uriString,
@@ -1502,8 +1495,6 @@ private fun InfoCard(systemInfo: SystemInfo) {
                 seccompDotColor = seccompDotColorMiuix(systemInfo.seccompStatus),
                 wallpaperState = statusWallpaperState,
                 wallpaperBitmap = statusWallpaperBitmap,
-                onEditWallpaperCrop = { showStatusWallpaperCropEditor = true },
-                onPreviewWallpaper = { showStatusWallpaperPreview = true },
             )
             Box(
                 modifier = Modifier
@@ -1517,63 +1508,10 @@ private fun InfoCard(systemInfo: SystemInfo) {
                 onFingerprintExpandedChange = { fingerprintExpanded = it },
                 wallpaperState = systemInfoWallpaperState,
                 wallpaperBitmap = systemInfoWallpaperBitmap,
-                onEditWallpaperCrop = { showSystemInfoWallpaperCropEditor = true },
-                onPreviewWallpaper = { showSystemInfoWallpaperPreview = true },
                 onCopyValue = ::copyValue,
             )
         }
     }
-    HomeWallpaperCropDialog(
-        show = showStatusWallpaperCropEditor && statusWallpaperState.hasSelectedWallpaper,
-        target = HomeMetricCardWallpaperTarget.StatusMonitor,
-        uriString = statusWallpaperState.uriString,
-        crop = statusWallpaperState.crop,
-        onCropChange = {
-            statusWallpaperState.onCropChange(it)
-            showStatusWallpaperPreview = true
-        },
-        onDismissRequest = { showStatusWallpaperCropEditor = false },
-    )
-    StatusMonitorWallpaperPreviewDialogMiuix(
-        show = showStatusWallpaperPreview && statusWallpaperBitmap != null,
-        bitmap = statusWallpaperBitmap,
-        selinuxLabel = stringResource(R.string.home_selinux_status),
-        selinuxValue = when (systemInfo.selinuxStatus) {
-            "Enforcing" -> stringResource(R.string.selinux_status_enforcing)
-            "Permissive" -> stringResource(R.string.selinux_status_permissive)
-            "Disabled" -> stringResource(R.string.selinux_status_disabled)
-            else -> stringResource(R.string.selinux_status_unknown)
-        },
-        selinuxDotColor = selinuxDotColorMiuix(systemInfo.selinuxStatus),
-        seccompLabel = stringResource(R.string.home_seccomp_status),
-        seccompValue = when (systemInfo.seccompStatus) {
-            -1 -> stringResource(R.string.seccomp_status_not_supported)
-            0 -> stringResource(R.string.seccomp_status_disabled)
-            1 -> stringResource(R.string.seccomp_status_strict)
-            2 -> stringResource(R.string.seccomp_status_filter)
-            else -> stringResource(R.string.seccomp_status_unknown)
-        },
-        seccompDotColor = seccompDotColorMiuix(systemInfo.seccompStatus),
-        onDismissRequest = { showStatusWallpaperPreview = false },
-    )
-    HomeWallpaperCropDialog(
-        show = showSystemInfoWallpaperCropEditor && systemInfoWallpaperState.hasSelectedWallpaper,
-        target = HomeMetricCardWallpaperTarget.SystemInfo,
-        uriString = systemInfoWallpaperState.uriString,
-        crop = systemInfoWallpaperState.crop,
-        onCropChange = {
-            systemInfoWallpaperState.onCropChange(it)
-            showSystemInfoWallpaperPreview = true
-        },
-        onDismissRequest = { showSystemInfoWallpaperCropEditor = false },
-    )
-    SystemInfoWallpaperPreviewDialogMiuix(
-        show = showSystemInfoWallpaperPreview && systemInfoWallpaperBitmap != null,
-        bitmap = systemInfoWallpaperBitmap,
-        systemInfo = systemInfo,
-        fingerprintExpanded = fingerprintExpanded,
-        onDismissRequest = { showSystemInfoWallpaperPreview = false },
-    )
 }
 
 @Composable
@@ -1586,10 +1524,9 @@ private fun StatusMonitorPanelMiuix(
     seccompDotColor: Color,
     wallpaperState: HomeMetricCardWallpaperState,
     wallpaperBitmap: Bitmap?,
-    onEditWallpaperCrop: () -> Unit,
-    onPreviewWallpaper: () -> Unit,
 ) {
-    val hasWallpaper = wallpaperBitmap != null
+    val videoUriString = wallpaperState.videoUriString
+    val hasWallpaper = wallpaperBitmap != null || !videoUriString.isNullOrBlank()
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1614,23 +1551,14 @@ private fun StatusMonitorPanelMiuix(
             )
             .clip(RoundedCornerShape(14.dp)),
     ) {
-        HomeMetricCardWallpaperBackground(bitmap = wallpaperBitmap)
-        HomeWallpaperActionsMiuix(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(6.dp),
-            target = HomeMetricCardWallpaperTarget.StatusMonitor,
-            hasWallpaper = hasWallpaper,
-            showClear = wallpaperState.hasSelectedWallpaper,
-            onPickWallpaper = wallpaperState.onPickWallpaper,
-            onEditCrop = onEditWallpaperCrop,
-            onPreviewWallpaper = onPreviewWallpaper,
-            onClearWallpaper = wallpaperState.onClearWallpaper,
+        HomeMetricCardWallpaperBackground(
+            bitmap = wallpaperBitmap,
+            videoUriString = videoUriString,
+            videoCrop = wallpaperState.crop,
         )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(end = 36.dp)
                 .padding(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -1661,11 +1589,10 @@ private fun SystemInfoPanelMiuix(
     onFingerprintExpandedChange: (Boolean) -> Unit,
     wallpaperState: HomeMetricCardWallpaperState,
     wallpaperBitmap: Bitmap?,
-    onEditWallpaperCrop: () -> Unit,
-    onPreviewWallpaper: () -> Unit,
     onCopyValue: (String, String) -> Unit,
 ) {
-    val hasWallpaper = wallpaperBitmap != null
+    val videoUriString = wallpaperState.videoUriString
+    val hasWallpaper = wallpaperBitmap != null || !videoUriString.isNullOrBlank()
     val rowColor = if (hasWallpaper) Color.White else colorScheme.onSurface
     val labelColor = if (hasWallpaper) {
         Color.White.copy(alpha = 0.72f)
@@ -1682,7 +1609,11 @@ private fun SystemInfoPanelMiuix(
             )
             .clip(RoundedCornerShape(14.dp)),
     ) {
-        HomeMetricCardWallpaperBackground(bitmap = wallpaperBitmap)
+        HomeMetricCardWallpaperBackground(
+            bitmap = wallpaperBitmap,
+            videoUriString = videoUriString,
+            videoCrop = wallpaperState.crop,
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1695,17 +1626,6 @@ private fun SystemInfoPanelMiuix(
                 onCopy = { onCopyValue("manager_version", systemInfo.managerVersion) },
                 labelColor = labelColor,
                 valueColor = rowColor,
-                trailingAction = {
-                    HomeWallpaperActionsMiuix(
-                        target = HomeMetricCardWallpaperTarget.SystemInfo,
-                        hasWallpaper = hasWallpaper,
-                        showClear = wallpaperState.hasSelectedWallpaper,
-                        onPickWallpaper = wallpaperState.onPickWallpaper,
-                        onEditCrop = onEditWallpaperCrop,
-                        onPreviewWallpaper = onPreviewWallpaper,
-                        onClearWallpaper = wallpaperState.onClearWallpaper,
-                    )
-                },
             )
             InfoRowMiuix(
                 label = stringResource(R.string.home_device_model),
@@ -2157,6 +2077,7 @@ private fun compactFingerprint(fingerprint: String, expanded: Boolean): String {
 }
 
 private const val LKM_CARD_WALLPAPER_URI_KEY = "home_lkm_card_wallpaper_uri"
+private const val LKM_CARD_WALLPAPER_VIDEO_URI_KEY = "home_lkm_card_wallpaper_video_uri"
 private const val LKM_CARD_WALLPAPER_CROP_LEFT_KEY = "home_lkm_card_wallpaper_crop_left"
 private const val LKM_CARD_WALLPAPER_CROP_TOP_KEY = "home_lkm_card_wallpaper_crop_top"
 private const val LKM_CARD_WALLPAPER_CROP_RIGHT_KEY = "home_lkm_card_wallpaper_crop_right"
@@ -2289,6 +2210,7 @@ private fun previewHomeScreenState(
     isSafeMode = isSafeMode,
     isLateLoadMode = isLateLoadMode,
     currentManagerVersionCode = 10000,
+    showVersionMismatchWarningSetting = true,
     superuserCount = superuserCount,
     moduleCount = moduleCount,
     systemInfo = previewSystemInfo.copy(selinuxStatus = selinuxStatus),

@@ -7,6 +7,13 @@ import android.provider.OpenableColumns
 import java.util.Locale
 
 const val CUSTOM_STARTUP_ANIMATION_URI_KEY = "custom_startup_animation_uri"
+const val CUSTOM_STARTUP_ANIMATION_GIF_MIME_TYPE = "image/gif"
+
+val CUSTOM_STARTUP_ANIMATION_MIME_TYPES = arrayOf(
+    "image/*",
+    CUSTOM_STARTUP_ANIMATION_GIF_MIME_TYPE,
+    "video/*",
+)
 
 fun takePersistableStartupAnimationReadPermission(context: Context, uri: Uri) {
     runCatching {
@@ -35,6 +42,14 @@ fun isCustomStartupAnimationVideo(context: Context, uri: Uri): Boolean {
         hasVideoExtension(queryDisplayName(context, uri))
 }
 
+fun isCustomStartupAnimationGif(context: Context, uri: Uri): Boolean {
+    val mimeType = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+    if (mimeType.equals(CUSTOM_STARTUP_ANIMATION_GIF_MIME_TYPE, ignoreCase = true)) return true
+
+    return hasGifExtension(uri.toString()) ||
+        hasGifExtension(queryDisplayName(context, uri))
+}
+
 private fun queryDisplayName(context: Context, uri: Uri): String? {
     return runCatching {
         context.contentResolver.query(
@@ -59,4 +74,9 @@ private fun hasVideoExtension(value: String?): Boolean {
         text.endsWith(".3gp") ||
         text.endsWith(".mov") ||
         text.endsWith(".video")
+}
+
+private fun hasGifExtension(value: String?): Boolean {
+    val text = value?.lowercase(Locale.ROOT) ?: return false
+    return text.endsWith(".gif")
 }

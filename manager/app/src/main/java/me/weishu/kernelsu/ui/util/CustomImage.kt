@@ -37,6 +37,13 @@ val DEFAULT_CUSTOM_WALLPAPER_CROP = CustomWallpaperCrop(
     bottom = 0.90f,
 )
 
+val FULL_CUSTOM_WALLPAPER_CROP = CustomWallpaperCrop(
+    left = 0f,
+    top = 0f,
+    right = 1f,
+    bottom = 1f,
+)
+
 @Immutable
 data class CustomWallpaperCrop(
     val left: Float = 0.10f,

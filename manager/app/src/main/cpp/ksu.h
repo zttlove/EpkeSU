@@ -18,6 +18,8 @@ uint32_t get_manager_uapi_version();
 
 uint32_t get_version();
 
+void refresh_info();
+
 bool uid_should_umount(int uid);
 
 bool is_safe_mode();

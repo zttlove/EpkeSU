@@ -52,6 +52,9 @@ fun homeWarningMessages(state: HomeUiState): List<String> = buildList {
     if (state.showGkiWarning) {
         add(stringResource(id = R.string.home_gki_warning))
     }
+    if (state.showManagerWarning) {
+        add(stringResource(id = R.string.home_manager_identity_warning))
+    }
     if (state.showUAPIMisMatchWarning) {
         add(
             stringResource(

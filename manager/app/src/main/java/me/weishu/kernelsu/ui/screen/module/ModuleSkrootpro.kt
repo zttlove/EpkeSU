@@ -229,11 +229,16 @@ private fun SkrootproModuleCard(
     var menuExpanded by remember(module.id) { mutableStateOf(false) }
     var showWallpaperCrop by remember(module.id) { mutableStateOf(false) }
     var showWallpaperPreview by remember(module.id) { mutableStateOf(false) }
-    val wallpaperState = rememberModuleCardWallpaperState(module.id)
-    val wallpaperBitmap = rememberModuleCardWallpaperBitmap(
-        uriString = wallpaperState.uriString,
-        crop = wallpaperState.crop,
+    val context = LocalContext.current
+    val wallpaperState = rememberModuleCardWallpaperState(
+        moduleId = module.id,
+        onWallpaperSelected = { showWallpaperCrop = true },
     )
+    val wallpaperEntry = rememberModuleCardWallpaperFrame(
+        state = wallpaperState,
+        paused = showWallpaperCrop || showWallpaperPreview,
+    )
+    val wallpaperBitmap = rememberModuleCardWallpaperBitmap(wallpaperEntry)
 
     Box(
         modifier = Modifier
@@ -356,6 +361,37 @@ private fun SkrootproModuleCard(
                                 showWallpaperPreview = true
                             },
                         )
+                        if (wallpaperState.canPlayCarousel) {
+                            DropdownMenuItem(
+                                text = {
+                                    SkrootproMenuText(
+                                        stringResource(
+                                            if (wallpaperState.carouselEnabled) {
+                                                R.string.module_wallpaper_carousel_disable
+                                            } else {
+                                                R.string.module_wallpaper_carousel_enable
+                                            }
+                                        )
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    wallpaperState.onToggleCarousel()
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { SkrootproMenuText(stringResource(R.string.module_wallpaper_sync_theme_store)) },
+                            onClick = {
+                                menuExpanded = false
+                                val message = if (wallpaperState.onSyncThemeStore()) {
+                                    R.string.module_wallpaper_sync_theme_store_success
+                                } else {
+                                    R.string.module_wallpaper_sync_theme_store_failed
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            },
+                        )
                         DropdownMenuItem(
                             text = { SkrootproMenuText(stringResource(R.string.module_wallpaper_clear)) },
                             onClick = {
@@ -382,9 +418,9 @@ private fun SkrootproModuleCard(
     }
 
     SettingsWallpaperCropDialog(
-        show = showWallpaperCrop,
-        uriString = wallpaperState.uriString,
-        crop = wallpaperState.crop,
+        show = showWallpaperCrop && wallpaperEntry != null,
+        uriString = wallpaperEntry?.uriString,
+        crop = wallpaperEntry?.crop ?: wallpaperState.crop,
         onCropChange = wallpaperState.onCropChange,
         onDismissRequest = { showWallpaperCrop = false },
         title = stringResource(R.string.module_wallpaper_crop),
@@ -394,7 +430,7 @@ private fun SkrootproModuleCard(
     ModuleCardWallpaperPreviewDialog(
         show = showWallpaperPreview,
         moduleName = module.name,
-        uriString = wallpaperState.uriString,
+        uriString = wallpaperEntry?.uriString,
         bitmap = wallpaperBitmap,
         onDismissRequest = { showWallpaperPreview = false },
     )

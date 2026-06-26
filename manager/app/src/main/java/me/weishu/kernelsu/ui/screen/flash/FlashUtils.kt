@@ -144,6 +144,7 @@ fun FlashEffect(
     onTextUpdate: (String) -> Unit,
     onShowRebootChange: (Boolean) -> Unit,
     onFlashingStatusChange: (FlashingStatus) -> Unit,
+    onFlashSuccess: () -> Unit,
     enabled: Boolean = true
 ) {
     LaunchedEffect(enabled) {
@@ -181,6 +182,9 @@ fun FlashEffect(
                     }
                 }
                 mainHandler.post {
+                    if (code == 0) {
+                        onFlashSuccess()
+                    }
                     onFlashingStatusChange(if (code == 0) FlashingStatus.SUCCESS else FlashingStatus.FAILED)
                 }
             }

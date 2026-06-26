@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,17 +20,24 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,9 +56,12 @@ import me.weishu.kernelsu.ui.component.skrootpro.SkrootproDivider
 import me.weishu.kernelsu.ui.component.skrootpro.SkrootproScreen
 import me.weishu.kernelsu.ui.component.skrootpro.SkrootproSectionTitle
 import me.weishu.kernelsu.ui.component.skrootpro.skrootproSp
+import me.weishu.kernelsu.ui.util.BUILTIN_MOUNT_MODE_MAGIC
+import me.weishu.kernelsu.ui.util.MAX_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_STARTUP_SOUND_DURATION_SECONDS
+import me.weishu.kernelsu.ui.util.MIN_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_STARTUP_SOUND_DURATION_SECONDS
@@ -62,6 +73,12 @@ fun SettingPagerSkrootpro(
     actions: SettingsScreenActions,
     bottomInnerPadding: Dp,
 ) {
+    var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
+    var updatesExpanded by rememberSaveable { mutableStateOf(false) }
+    var rootFeaturesExpanded by rememberSaveable { mutableStateOf(false) }
+    var advancedExpanded by rememberSaveable { mutableStateOf(false) }
+    var maintenanceExpanded by rememberSaveable { mutableStateOf(false) }
+
     SkrootproScreen(
         title = stringResource(R.string.skrootpro_title),
         bottomInnerPadding = bottomInnerPadding,
@@ -77,206 +94,220 @@ fun SettingPagerSkrootpro(
             SkrootproStylePicker(uiState = uiState, actions = actions)
             SkrootproDivider(modifier = Modifier.padding(vertical = 18.dp))
 
-            SkrootproSectionTitle(stringResource(R.string.settings_section_appearance))
-            SkrootproActionRow(
-                title = stringResource(R.string.settings_theme),
-                summary = stringResource(R.string.settings_theme_summary),
-                onClick = actions.onOpenTheme,
-            )
-            SkrootproActionRow(
-                title = stringResource(R.string.theme_store),
-                summary = stringResource(R.string.theme_store_settings_summary),
-                onClick = actions.onOpenThemeStore,
-            )
-            SkrootproActionRow(
-                title = stringResource(R.string.settings_manager_name),
-                summary = if (uiState.customManagerName.isBlank()) {
-                    stringResource(
-                        R.string.settings_manager_name_default_summary,
-                        stringResource(R.string.app_name)
-                    )
-                } else {
-                    stringResource(R.string.settings_manager_name_custom_summary, uiState.customManagerName)
-                },
-                leadingIcon = Icons.Rounded.EditNote,
-                onClick = actions.onEditCustomManagerName,
-            )
-            SkrootproActionRow(
-                title = stringResource(R.string.settings_app_icon),
-                summary = stringResource(R.string.settings_app_icon_summary),
-                leadingIcon = Icons.Rounded.Apps,
-                onClick = actions.onOpenLauncherIcon,
-            )
-            SkrootproActionRow(
-                title = stringResource(R.string.settings_wallpaper),
-                summary = stringResource(
-                    if (uiState.customWallpaperUri == null) {
-                        R.string.settings_wallpaper_summary
-                    } else {
-                        R.string.settings_wallpaper_selected_summary
-                    }
-                ),
-                onClick = actions.onPickWallpaper,
-            )
-            if (uiState.customWallpaperUri != null) {
+            CollapsibleSkrootproSection(
+                title = stringResource(R.string.settings_section_appearance),
+                expanded = appearanceExpanded,
+                onExpandedChange = { appearanceExpanded = it },
+            ) {
                 SkrootproActionRow(
-                    title = stringResource(R.string.settings_wallpaper_crop),
-                    summary = stringResource(R.string.settings_wallpaper_crop_summary),
-                    onClick = actions.onEditWallpaperCrop,
+                    title = stringResource(R.string.settings_theme),
+                    summary = stringResource(R.string.settings_theme_summary),
+                    onClick = actions.onOpenTheme,
                 )
-                SkrootproSliderRow(
-                    title = stringResource(R.string.settings_wallpaper_opacity),
-                    value = uiState.customWallpaperOpacity,
-                    onValueChange = actions.onSetWallpaperOpacity,
+                SkrootproActionRow(
+                    title = stringResource(R.string.theme_store),
+                    summary = stringResource(R.string.theme_store_settings_summary),
+                    onClick = actions.onOpenThemeStore,
                 )
-                SkrootproSwitchRow(
-                    title = stringResource(R.string.settings_wallpaper_passthrough),
-                    checked = uiState.customWallpaperPassthroughEnabled,
-                    onCheckedChange = actions.onSetWallpaperPassthroughEnabled,
+                SkrootproActionRow(
+                    title = stringResource(R.string.settings_manager_name),
+                    summary = if (uiState.customManagerName.isBlank()) {
+                        stringResource(
+                            R.string.settings_manager_name_default_summary,
+                            stringResource(R.string.app_name)
+                        )
+                    } else {
+                        stringResource(R.string.settings_manager_name_custom_summary, uiState.customManagerName)
+                    },
+                    leadingIcon = Icons.Rounded.EditNote,
+                    onClick = actions.onEditCustomManagerName,
                 )
-                if (uiState.customWallpaperPassthroughEnabled) {
-                    SkrootproSliderRow(
-                        title = stringResource(R.string.settings_wallpaper_passthrough_opacity),
-                        value = uiState.customWallpaperPassthroughOpacity,
-                        valueRange = MIN_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY..MAX_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY,
-                        onValueChange = actions.onSetWallpaperPassthroughOpacity,
+                SkrootproActionRow(
+                    title = stringResource(R.string.settings_app_icon),
+                    summary = stringResource(R.string.settings_app_icon_summary),
+                    leadingIcon = Icons.Rounded.Apps,
+                    onClick = actions.onOpenLauncherIcon,
+                )
+                SkrootproActionRow(
+                    title = stringResource(R.string.home_card_wallpapers),
+                    summary = stringResource(R.string.home_card_wallpapers_summary),
+                    leadingIcon = Icons.Rounded.Wallpaper,
+                    onClick = actions.onOpenHomeCardWallpapers,
+                )
+                SkrootproActionRow(
+                    title = stringResource(R.string.settings_backgrounds),
+                    summary = stringResource(R.string.settings_backgrounds_summary),
+                    leadingIcon = Icons.Rounded.Wallpaper,
+                    onClick = actions.onOpenBackgrounds,
+                )
+                SkrootproActionRow(
+                    title = stringResource(R.string.settings_sound_effects),
+                    summary = stringResource(R.string.settings_sound_effects_summary),
+                    leadingIcon = Icons.AutoMirrored.Rounded.VolumeUp,
+                    onClick = actions.onOpenSoundEffects,
+                )
+                SkrootproActionRow(
+                    title = stringResource(R.string.settings_startup_animation),
+                    summary = stringResource(
+                        if (uiState.customStartupAnimationUri == null) {
+                            R.string.settings_startup_animation_summary
+                        } else {
+                            R.string.settings_startup_animation_selected_summary
+                        }
+                    ),
+                    leadingIcon = Icons.Rounded.PlayCircle,
+                    onClick = actions.onPickStartupAnimation,
+                )
+                if (uiState.customStartupAnimationUri != null) {
+                    SkrootproActionRow(
+                        title = stringResource(R.string.settings_startup_animation_preview),
+                        summary = "",
+                        leadingIcon = Icons.Rounded.Visibility,
+                        onClick = actions.onPreviewStartupAnimation,
+                    )
+                    SkrootproActionRow(
+                        title = stringResource(R.string.settings_startup_animation_clear),
+                        summary = "",
+                        onClick = actions.onClearStartupAnimation,
                     )
                 }
-                SkrootproActionRow(
-                    title = stringResource(R.string.settings_wallpaper_preview),
-                    summary = "",
-                    onClick = actions.onPreviewWallpaper,
-                )
-                SkrootproActionRow(
-                    title = stringResource(R.string.settings_wallpaper_clear),
-                    summary = "",
-                    onClick = actions.onClearWallpaper,
-                )
             }
-            SkrootproActionRow(
-                title = stringResource(R.string.settings_startup_sound),
-                summary = stringResource(
-                    if (uiState.customStartupSoundUri == null) {
-                        R.string.settings_startup_sound_summary
-                    } else {
-                        R.string.settings_startup_sound_selected_summary
-                    }
-                ),
-                leadingIcon = Icons.AutoMirrored.Rounded.VolumeUp,
-                onClick = actions.onPickStartupSound,
-            )
-            SkrootproActionRow(
-                title = stringResource(R.string.settings_startup_animation),
-                summary = stringResource(
-                    if (uiState.customStartupAnimationUri == null) {
-                        R.string.settings_startup_animation_summary
-                    } else {
-                        R.string.settings_startup_animation_selected_summary
-                    }
-                ),
-                leadingIcon = Icons.Rounded.PlayCircle,
-                onClick = actions.onPickStartupAnimation,
-            )
-            if (uiState.customStartupAnimationUri != null) {
-                SkrootproActionRow(
-                    title = stringResource(R.string.settings_startup_animation_preview),
-                    summary = "",
-                    leadingIcon = Icons.Rounded.Visibility,
-                    onClick = actions.onPreviewStartupAnimation,
+
+            CollapsibleSkrootproSection(
+                title = stringResource(R.string.settings_section_updates),
+                expanded = updatesExpanded,
+                onExpandedChange = { updatesExpanded = it },
+            ) {
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_module_check_update),
+                    checked = uiState.checkModuleUpdate,
+                    onCheckedChange = actions.onSetCheckModuleUpdate,
                 )
-                SkrootproActionRow(
-                    title = stringResource(R.string.settings_startup_animation_clear),
-                    summary = "",
-                    onClick = actions.onClearStartupAnimation,
-                )
-            }
-            if (uiState.customStartupSoundUri != null) {
-                SkrootproDurationSliderRow(
-                    title = stringResource(R.string.settings_startup_sound_duration),
-                    value = uiState.customStartupSoundDurationSeconds,
-                    onValueChange = actions.onSetStartupSoundDurationSeconds,
-                )
-                SkrootproActionRow(
-                    title = stringResource(R.string.settings_startup_sound_preview),
-                    summary = "",
-                    leadingIcon = Icons.AutoMirrored.Rounded.VolumeUp,
-                    onClick = actions.onPreviewStartupSound,
-                )
-                SkrootproActionRow(
-                    title = stringResource(R.string.settings_startup_sound_clear),
-                    summary = "",
-                    onClick = actions.onClearStartupSound,
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_version_mismatch_warning),
+                    checked = uiState.showVersionMismatchWarning,
+                    onCheckedChange = actions.onSetShowVersionMismatchWarning,
                 )
             }
 
-            SkrootproSectionTitle(stringResource(R.string.settings_section_updates))
-            SkrootproSwitchRow(
-                title = stringResource(R.string.settings_module_check_update),
-                checked = uiState.checkModuleUpdate,
-                onCheckedChange = actions.onSetCheckModuleUpdate,
-            )
+            CollapsibleSkrootproSection(
+                title = stringResource(R.string.settings_section_root_features),
+                expanded = rootFeaturesExpanded,
+                onExpandedChange = { rootFeaturesExpanded = it },
+            ) {
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_kernel_umount),
+                    checked = uiState.isKernelUmountEnabled,
+                    onCheckedChange = actions.onSetKernelUmountEnabled,
+                    enabled = uiState.kernelUmountStatus == "supported",
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_selinux_hide),
+                    checked = uiState.isSelinuxHideEnabled,
+                    onCheckedChange = actions.onSetSelinuxHideEnabled,
+                    enabled = uiState.selinuxHideStatus == "supported",
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_sulog),
+                    checked = uiState.isSulogEnabled,
+                    onCheckedChange = actions.onSetSulogEnabled,
+                    enabled = uiState.sulogStatus == "supported",
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_adb_root),
+                    checked = uiState.isAdbRootEnabled,
+                    onCheckedChange = actions.onSetAdbRootEnabled,
+                    enabled = uiState.adbRootStatus == "supported",
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_avc_spoof),
+                    checked = uiState.isAvcSpoofEnabled,
+                    onCheckedChange = actions.onSetAvcSpoofEnabled,
+                    enabled = uiState.avcSpoofStatus == "supported",
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_epkesu_hide),
+                    checked = uiState.isEpkesuHideEnabled,
+                    onCheckedChange = actions.onSetEpkesuHideEnabled,
+                )
+            }
 
-            SkrootproSectionTitle(stringResource(R.string.settings_section_root_features))
-            SkrootproSwitchRow(
-                title = stringResource(R.string.settings_kernel_umount),
-                checked = uiState.isKernelUmountEnabled,
-                onCheckedChange = actions.onSetKernelUmountEnabled,
-                enabled = uiState.kernelUmountStatus == "supported",
-            )
-            SkrootproSwitchRow(
-                title = stringResource(R.string.settings_selinux_hide),
-                checked = uiState.isSelinuxHideEnabled,
-                onCheckedChange = actions.onSetSelinuxHideEnabled,
-                enabled = uiState.selinuxHideStatus == "supported",
-            )
-            SkrootproSwitchRow(
-                title = stringResource(R.string.settings_sulog),
-                checked = uiState.isSulogEnabled,
-                onCheckedChange = actions.onSetSulogEnabled,
-                enabled = uiState.sulogStatus == "supported",
-            )
-            SkrootproSwitchRow(
-                title = stringResource(R.string.settings_adb_root),
-                checked = uiState.isAdbRootEnabled,
-                onCheckedChange = actions.onSetAdbRootEnabled,
-                enabled = uiState.adbRootStatus == "supported",
-            )
-            SkrootproSwitchRow(
-                title = stringResource(R.string.settings_avc_spoof),
-                checked = uiState.isAvcSpoofEnabled,
-                onCheckedChange = actions.onSetAvcSpoofEnabled,
-                enabled = uiState.avcSpoofStatus == "supported",
-            )
+            CollapsibleSkrootproSection(
+                title = stringResource(R.string.settings_section_advanced),
+                expanded = advancedExpanded,
+                onExpandedChange = { advancedExpanded = it },
+            ) {
+                SkrootproActionRow(
+                    title = stringResource(R.string.settings_profile_template),
+                    summary = stringResource(R.string.settings_profile_template_summary),
+                    onClick = actions.onOpenProfileTemplate,
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_umount_modules_default),
+                    checked = uiState.isDefaultUmountModules,
+                    onCheckedChange = actions.onSetDefaultUmountModules,
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_builtin_mount),
+                    checked = uiState.isBuiltinMountEnabled,
+                    onCheckedChange = actions.onSetBuiltinMountEnabled,
+                )
+                SkrootproActionRow(
+                    title = stringResource(R.string.settings_builtin_mount_default_mode),
+                    summary = stringResource(
+                        if (uiState.builtinMountDefaultMode == BUILTIN_MOUNT_MODE_MAGIC) {
+                            R.string.settings_builtin_mount_mode_magic
+                        } else {
+                            R.string.settings_builtin_mount_mode_overlay
+                        }
+                    ),
+                    leadingIcon = Icons.Rounded.Apps,
+                    onClick = {
+                        actions.onSetBuiltinMountDefaultMode(
+                            if (uiState.builtinMountDefaultMode == BUILTIN_MOUNT_MODE_MAGIC) 0 else 1
+                        )
+                    },
+                )
+                SkrootproActionRow(
+                    title = stringResource(R.string.settings_builtin_mount_webui),
+                    summary = stringResource(
+                        if (uiState.isBuiltinMountEnabled && uiState.isBuiltinMountWebUiAvailable) {
+                            R.string.settings_builtin_mount_webui_summary
+                        } else {
+                            R.string.settings_builtin_mount_webui_disabled_summary
+                        }
+                    ),
+                    leadingIcon = Icons.Rounded.DeveloperMode,
+                    onClick = {
+                        if (uiState.isBuiltinMountEnabled && uiState.isBuiltinMountWebUiAvailable) {
+                            actions.onOpenBuiltinMountWebUi()
+                        }
+                    },
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.enable_web_debugging),
+                    checked = uiState.enableWebDebugging,
+                    onCheckedChange = actions.onSetEnableWebDebugging,
+                )
+                SkrootproSwitchRow(
+                    title = stringResource(R.string.settings_auto_jailbreak),
+                    checked = uiState.autoJailbreak,
+                    onCheckedChange = actions.onSetAutoJailbreak,
+                    enabled = uiState.isLateLoadMode,
+                )
+            }
 
-            SkrootproSectionTitle(stringResource(R.string.settings_section_advanced))
-            SkrootproActionRow(
-                title = stringResource(R.string.settings_profile_template),
-                summary = stringResource(R.string.settings_profile_template_summary),
-                onClick = actions.onOpenProfileTemplate,
-            )
-            SkrootproSwitchRow(
-                title = stringResource(R.string.settings_umount_modules_default),
-                checked = uiState.isDefaultUmountModules,
-                onCheckedChange = actions.onSetDefaultUmountModules,
-            )
-            SkrootproSwitchRow(
-                title = stringResource(R.string.enable_web_debugging),
-                checked = uiState.enableWebDebugging,
-                onCheckedChange = actions.onSetEnableWebDebugging,
-            )
-            SkrootproSwitchRow(
-                title = stringResource(R.string.settings_auto_jailbreak),
-                checked = uiState.autoJailbreak,
-                onCheckedChange = actions.onSetAutoJailbreak,
-                enabled = uiState.isLateLoadMode,
-            )
-
-            SkrootproSectionTitle(stringResource(R.string.settings_section_maintenance))
-            SkrootproActionRow(
-                title = stringResource(R.string.about),
-                summary = "",
-                onClick = actions.onOpenAbout,
-            )
+            CollapsibleSkrootproSection(
+                title = stringResource(R.string.settings_section_maintenance),
+                expanded = maintenanceExpanded,
+                onExpandedChange = { maintenanceExpanded = it },
+            ) {
+                SkrootproActionRow(
+                    title = stringResource(R.string.about),
+                    summary = "",
+                    onClick = actions.onOpenAbout,
+                )
+            }
             Spacer(modifier = Modifier.height(12.dp))
         }
     }
@@ -310,7 +341,7 @@ private fun SkrootproStylePicker(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = style.label,
+                    text = stringResource(style.labelRes),
                     color = if (selected) Color.White else SkrootproColors.Muted,
                     fontSize = skrootproSp(14f, maxScale = 1.04f),
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
@@ -322,9 +353,47 @@ private fun SkrootproStylePicker(
 }
 
 @Composable
+private fun CollapsibleSkrootproSection(
+    title: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onExpandedChange(!expanded) }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = title,
+                color = SkrootproColors.Text,
+                fontSize = skrootproSp(13f, maxScale = 1.0f),
+                lineHeight = skrootproSp(16f, maxScale = 1.0f),
+                modifier = Modifier.weight(1f),
+            )
+            androidx.compose.material3.Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = title,
+                tint = SkrootproColors.Muted,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        if (expanded) {
+            content()
+        }
+    }
+}
+
+@Composable
 private fun SkrootproDurationSliderRow(
     title: String,
     value: Int,
+    valueRange: IntRange = MIN_CUSTOM_STARTUP_SOUND_DURATION_SECONDS..MAX_CUSTOM_STARTUP_SOUND_DURATION_SECONDS,
+    valueLabelRes: Int = R.string.settings_startup_sound_duration_value,
     onValueChange: (Int) -> Unit,
 ) {
     var sliderValue by remember(value) { mutableFloatStateOf(value.toFloat()) }
@@ -359,7 +428,7 @@ private fun SkrootproDurationSliderRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = stringResource(R.string.settings_startup_sound_duration_value, currentSeconds),
+                text = stringResource(valueLabelRes, currentSeconds),
                 color = SkrootproColors.Muted,
                 fontSize = skrootproSp(13f, maxScale = 1.05f),
                 fontWeight = FontWeight.Medium,
@@ -371,12 +440,24 @@ private fun SkrootproDurationSliderRow(
                 sliderValue = it
                 onValueChange(it.roundToInt())
             },
-            valueRange = MIN_CUSTOM_STARTUP_SOUND_DURATION_SECONDS.toFloat()..
-                MAX_CUSTOM_STARTUP_SOUND_DURATION_SECONDS.toFloat(),
-            steps = MAX_CUSTOM_STARTUP_SOUND_DURATION_SECONDS -
-                MIN_CUSTOM_STARTUP_SOUND_DURATION_SECONDS - 1,
+            valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
+            steps = (valueRange.last - valueRange.first - 1).coerceAtLeast(0),
         )
     }
+}
+
+@Composable
+private fun backgroundSummary(
+    hasWallpaper: Boolean,
+    hasVideo: Boolean,
+): String {
+    return stringResource(
+        when {
+            hasVideo -> R.string.settings_video_background_selected_summary
+            hasWallpaper -> R.string.settings_wallpaper_selected_summary
+            else -> R.string.settings_background_summary
+        }
+    )
 }
 
 @Composable

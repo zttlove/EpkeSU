@@ -1,14 +1,19 @@
 package me.weishu.kernelsu.ui.screen.settings
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,10 +39,13 @@ import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material.icons.filled.RemoveModerator
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -56,6 +64,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -71,12 +80,15 @@ import me.weishu.kernelsu.ui.component.material.SegmentedSwitchItem
 import me.weishu.kernelsu.ui.component.material.SendLogBottomSheet
 import me.weishu.kernelsu.ui.component.material.SnackBarHost
 import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
+import me.weishu.kernelsu.ui.util.BUILTIN_MOUNT_MODE_MAGIC
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_STARTUP_SOUND_DURATION_SECONDS
+import me.weishu.kernelsu.ui.util.MAX_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_STARTUP_SOUND_DURATION_SECONDS
+import me.weishu.kernelsu.ui.util.MIN_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import kotlin.math.roundToInt
 
 /**
@@ -143,12 +155,22 @@ private fun SettingsMaterialContent(
     showUninstallDialog: () -> Unit,
     showBottomSheet: () -> Unit,
 ) {
+    var updatesExpanded by rememberSaveable { mutableStateOf(false) }
+    var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
+    var profilesExpanded by rememberSaveable { mutableStateOf(false) }
+    var rootFeaturesExpanded by rememberSaveable { mutableStateOf(false) }
+    var advancedExpanded by rememberSaveable { mutableStateOf(false) }
+    var maintenanceExpanded by rememberSaveable { mutableStateOf(false) }
+
     Spacer(modifier = Modifier.height(8.dp))
     KsuIsValid {
-        SegmentedColumn(
+        CollapsibleSegmentedColumn(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             title = stringResource(R.string.settings_section_updates),
-            content = listOf {
+            expanded = updatesExpanded,
+            onExpandedChange = { updatesExpanded = it },
+            content = listOf(
+                {
                 SegmentedSwitchItem(
                     icon = Icons.Rounded.UploadFile,
                     title = stringResource(id = R.string.settings_module_check_update),
@@ -156,20 +178,32 @@ private fun SettingsMaterialContent(
                     checked = uiState.checkModuleUpdate,
                     onCheckedChange = actions.onSetCheckModuleUpdate
                 )
-            }
+                },
+                {
+                    SegmentedSwitchItem(
+                        icon = Icons.Filled.BugReport,
+                        title = stringResource(id = R.string.settings_version_mismatch_warning),
+                        summary = stringResource(id = R.string.settings_version_mismatch_warning_summary),
+                        checked = uiState.showVersionMismatchWarning,
+                        onCheckedChange = actions.onSetShowVersionMismatchWarning
+                    )
+                },
+            )
         )
     }
 
-    SegmentedColumn(
+    CollapsibleSegmentedColumn(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         title = stringResource(R.string.settings_section_appearance),
+        expanded = appearanceExpanded,
+        onExpandedChange = { appearanceExpanded = it },
         content = buildList {
             add {
                 SegmentedDropdownItem(
                     icon = Icons.Rounded.Dashboard,
                     title = stringResource(id = R.string.settings_ui_mode),
                     summary = stringResource(id = R.string.settings_ui_mode_summary),
-                    items = InterfaceStyle.entries.map { it.label },
+                    items = InterfaceStyle.entries.map { stringResource(it.labelRes) },
                     selectedIndex = InterfaceStyle.selectedIndex(uiState.uiMode),
                     onItemSelected = actions.onSetUiModeIndex
                 )
@@ -240,114 +274,13 @@ private fun SettingsMaterialContent(
             }
             add {
                 SegmentedListItem(
-                    onClick = actions.onPickWallpaper,
-                    headlineContent = { Text(stringResource(id = R.string.settings_wallpaper)) },
-                    supportingContent = {
-                        Text(
-                            stringResource(
-                                if (uiState.customWallpaperUri == null) {
-                                    R.string.settings_wallpaper_summary
-                                } else {
-                                    R.string.settings_wallpaper_selected_summary
-                                }
-                            )
-                        )
-                    },
-                    leadingContent = { Icon(Icons.Filled.Wallpaper, stringResource(id = R.string.settings_wallpaper)) },
-                    trailingContent = {
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            null
-                        )
-                    }
-                )
-            }
-            if (uiState.customWallpaperUri != null) {
-                add {
-                    SegmentedListItem(
-                        onClick = actions.onEditWallpaperCrop,
-                        headlineContent = { Text(stringResource(id = R.string.settings_wallpaper_crop)) },
-                        supportingContent = { Text(stringResource(id = R.string.settings_wallpaper_crop_summary)) },
-                        leadingContent = {
-                            Icon(
-                                Icons.Filled.ImageSearch,
-                                stringResource(id = R.string.settings_wallpaper_crop)
-                            )
-                        },
-                    )
-                }
-                add {
-                    WallpaperOpacityMaterialItem(
-                        opacity = uiState.customWallpaperOpacity,
-                        title = stringResource(id = R.string.settings_wallpaper_opacity),
-                        summary = stringResource(id = R.string.settings_wallpaper_opacity_summary),
-                        onOpacityChange = actions.onSetWallpaperOpacity,
-                    )
-                }
-                add {
-                    SegmentedSwitchItem(
-                        icon = Icons.Filled.Layers,
-                        title = stringResource(id = R.string.settings_wallpaper_passthrough),
-                        summary = stringResource(id = R.string.settings_wallpaper_passthrough_summary),
-                        checked = uiState.customWallpaperPassthroughEnabled,
-                        onCheckedChange = actions.onSetWallpaperPassthroughEnabled,
-                    )
-                }
-                if (uiState.customWallpaperPassthroughEnabled) {
-                    add {
-                        WallpaperOpacityMaterialItem(
-                            opacity = uiState.customWallpaperPassthroughOpacity,
-                            title = stringResource(id = R.string.settings_wallpaper_passthrough_opacity),
-                            summary = stringResource(id = R.string.settings_wallpaper_passthrough_opacity_summary),
-                            range = MIN_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY..MAX_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY,
-                            onOpacityChange = actions.onSetWallpaperPassthroughOpacity,
-                        )
-                    }
-                }
-                add {
-                    SegmentedListItem(
-                        onClick = actions.onPreviewWallpaper,
-                        headlineContent = { Text(stringResource(id = R.string.settings_wallpaper_preview)) },
-                        leadingContent = {
-                            Icon(
-                                Icons.Filled.Visibility,
-                                stringResource(id = R.string.settings_wallpaper_preview)
-                            )
-                        },
-                    )
-                }
-                add {
-                    SegmentedListItem(
-                        onClick = actions.onClearWallpaper,
-                        headlineContent = { Text(stringResource(id = R.string.settings_wallpaper_clear)) },
-                        leadingContent = {
-                            Icon(
-                                Icons.Filled.Close,
-                                stringResource(id = R.string.settings_wallpaper_clear)
-                            )
-                        },
-                    )
-                }
-            }
-            add {
-                SegmentedListItem(
-                    onClick = actions.onPickStartupSound,
-                    headlineContent = { Text(stringResource(id = R.string.settings_startup_sound)) },
-                    supportingContent = {
-                        Text(
-                            stringResource(
-                                if (uiState.customStartupSoundUri == null) {
-                                    R.string.settings_startup_sound_summary
-                                } else {
-                                    R.string.settings_startup_sound_selected_summary
-                                }
-                            )
-                        )
-                    },
+                    onClick = actions.onOpenNavigationIcons,
+                    headlineContent = { Text(stringResource(id = R.string.settings_navigation_icons)) },
+                    supportingContent = { Text(stringResource(id = R.string.settings_navigation_icons_summary)) },
                     leadingContent = {
                         Icon(
-                            Icons.AutoMirrored.Filled.VolumeUp,
-                            stringResource(id = R.string.settings_startup_sound)
+                            Icons.Filled.Apps,
+                            stringResource(id = R.string.settings_navigation_icons)
                         )
                     },
                     trailingContent = {
@@ -358,6 +291,58 @@ private fun SettingsMaterialContent(
                     }
                 )
             }
+                add {
+                    SegmentedListItem(
+                        onClick = actions.onOpenHomeCardWallpapers,
+                        headlineContent = { Text(stringResource(id = R.string.home_card_wallpapers)) },
+                        supportingContent = { Text(stringResource(id = R.string.home_card_wallpapers_summary)) },
+                    leadingContent = {
+                        Icon(
+                            Icons.Filled.Wallpaper,
+                            stringResource(id = R.string.home_card_wallpapers)
+                        )
+                    },
+                    trailingContent = {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            null
+                        )
+                        }
+                    )
+                }
+                add {
+                    SegmentedListItem(
+                        onClick = actions.onOpenBackgrounds,
+                        headlineContent = { Text(stringResource(id = R.string.settings_backgrounds)) },
+                        supportingContent = { Text(stringResource(id = R.string.settings_backgrounds_summary)) },
+                        leadingContent = { Icon(Icons.Filled.Wallpaper, stringResource(id = R.string.settings_backgrounds)) },
+                        trailingContent = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                null
+                            )
+                        }
+                    )
+                }
+                add {
+                    SegmentedListItem(
+                        onClick = actions.onOpenSoundEffects,
+                        headlineContent = { Text(stringResource(id = R.string.settings_sound_effects)) },
+                        supportingContent = { Text(stringResource(id = R.string.settings_sound_effects_summary)) },
+                        leadingContent = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.VolumeUp,
+                                stringResource(id = R.string.settings_sound_effects)
+                            )
+                        },
+                        trailingContent = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                null
+                            )
+                        }
+                    )
+                }
             add {
                 SegmentedListItem(
                     onClick = actions.onPickStartupAnimation,
@@ -410,46 +395,16 @@ private fun SettingsMaterialContent(
                     )
                 }
             }
-            if (uiState.customStartupSoundUri != null) {
-                add {
-                    StartupSoundDurationMaterialItem(
-                        durationSeconds = uiState.customStartupSoundDurationSeconds,
-                        onDurationChange = actions.onSetStartupSoundDurationSeconds,
-                    )
-                }
-                add {
-                    SegmentedListItem(
-                        onClick = actions.onPreviewStartupSound,
-                        headlineContent = { Text(stringResource(id = R.string.settings_startup_sound_preview)) },
-                        leadingContent = {
-                            Icon(
-                                Icons.AutoMirrored.Filled.VolumeUp,
-                                stringResource(id = R.string.settings_startup_sound_preview)
-                            )
-                        },
-                    )
-                }
-                add {
-                    SegmentedListItem(
-                        onClick = actions.onClearStartupSound,
-                        headlineContent = { Text(stringResource(id = R.string.settings_startup_sound_clear)) },
-                        leadingContent = {
-                            Icon(
-                                Icons.Filled.Close,
-                                stringResource(id = R.string.settings_startup_sound_clear)
-                            )
-                        },
-                    )
-                }
-            }
         }
     )
 
     val profileTemplate = stringResource(id = R.string.settings_profile_template)
     KsuIsValid {
-        SegmentedColumn(
+        CollapsibleSegmentedColumn(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             title = stringResource(R.string.settings_section_profiles),
+            expanded = profilesExpanded,
+            onExpandedChange = { profilesExpanded = it },
             content = listOf {
                 SegmentedListItem(
                     onClick = actions.onOpenProfileTemplate,
@@ -474,9 +429,11 @@ private fun SettingsMaterialContent(
             stringResource(id = R.string.settings_mode_disable_always),
         )
 
-        SegmentedColumn(
+        CollapsibleSegmentedColumn(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             title = stringResource(R.string.settings_section_root_features),
+            expanded = rootFeaturesExpanded,
+            onExpandedChange = { rootFeaturesExpanded = it },
             content = listOf(
                 {
                     val suSummary = when (uiState.suCompatStatus) {
@@ -569,12 +526,23 @@ private fun SettingsMaterialContent(
                         onCheckedChange = actions.onSetAvcSpoofEnabled
                     )
                 },
+                {
+                    SegmentedSwitchItem(
+                        icon = Icons.Filled.Visibility,
+                        title = stringResource(id = R.string.settings_epkesu_hide),
+                        summary = stringResource(id = R.string.settings_epkesu_hide_summary),
+                        checked = uiState.isEpkesuHideEnabled,
+                        onCheckedChange = actions.onSetEpkesuHideEnabled
+                    )
+                },
             )
         )
 
-        SegmentedColumn(
+        CollapsibleSegmentedColumn(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             title = stringResource(R.string.settings_section_advanced),
+            expanded = advancedExpanded,
+            onExpandedChange = { advancedExpanded = it },
             content = listOf(
                 {
                     SegmentedSwitchItem(
@@ -583,6 +551,59 @@ private fun SettingsMaterialContent(
                         summary = stringResource(id = R.string.settings_umount_modules_default_summary),
                         checked = uiState.isDefaultUmountModules,
                         onCheckedChange = actions.onSetDefaultUmountModules
+                    )
+                },
+                {
+                    val builtinMountSummary = uiState.builtinMountConflict?.let {
+                        stringResource(id = R.string.settings_builtin_mount_conflict_summary, it)
+                    } ?: stringResource(id = R.string.settings_builtin_mount_summary)
+                    SegmentedSwitchItem(
+                        icon = Icons.Filled.Layers,
+                        title = stringResource(id = R.string.settings_builtin_mount),
+                        summary = builtinMountSummary,
+                        checked = uiState.isBuiltinMountEnabled,
+                        onCheckedChange = actions.onSetBuiltinMountEnabled
+                    )
+                },
+                {
+                    val builtinMountModeItems = listOf(
+                        stringResource(id = R.string.settings_builtin_mount_mode_overlay),
+                        stringResource(id = R.string.settings_builtin_mount_mode_magic),
+                    )
+                    SegmentedDropdownItem(
+                        icon = Icons.Filled.Apps,
+                        title = stringResource(id = R.string.settings_builtin_mount_default_mode),
+                        summary = stringResource(id = R.string.settings_builtin_mount_default_mode_summary),
+                        items = builtinMountModeItems,
+                        selectedIndex = if (uiState.builtinMountDefaultMode == BUILTIN_MOUNT_MODE_MAGIC) 1 else 0,
+                        onItemSelected = actions.onSetBuiltinMountDefaultMode
+                    )
+                },
+                {
+                    SegmentedListItem(
+                        onClick = actions.onOpenBuiltinMountWebUi,
+                        enabled = uiState.isBuiltinMountEnabled && uiState.isBuiltinMountWebUiAvailable,
+                        headlineContent = { Text(stringResource(id = R.string.settings_builtin_mount_webui)) },
+                        supportingContent = {
+                            Text(
+                                stringResource(
+                                    id = if (uiState.isBuiltinMountEnabled && uiState.isBuiltinMountWebUiAvailable) {
+                                        R.string.settings_builtin_mount_webui_summary
+                                    } else {
+                                        R.string.settings_builtin_mount_webui_disabled_summary
+                                    }
+                                )
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                Icons.Filled.DeveloperMode,
+                                stringResource(id = R.string.settings_builtin_mount_webui)
+                            )
+                        },
+                        trailingContent = {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+                        }
                     )
                 },
                 {
@@ -608,12 +629,14 @@ private fun SettingsMaterialContent(
         )
     }
 
-    if (uiState.isLkmMode) {
-        SegmentedColumn(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            title = stringResource(R.string.settings_section_maintenance),
-            content = listOf(
-                {
+    CollapsibleSegmentedColumn(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        title = stringResource(R.string.settings_section_maintenance),
+        expanded = maintenanceExpanded,
+        onExpandedChange = { maintenanceExpanded = it },
+        content = buildList {
+            if (uiState.isLkmMode) {
+                add {
                     val uninstall = stringResource(id = R.string.settings_uninstall)
                     SegmentedListItem(
                         onClick = showUninstallDialog,
@@ -622,15 +645,8 @@ private fun SettingsMaterialContent(
                         leadingContent = { Icon(Icons.Filled.Delete, uninstall) }
                     )
                 }
-            )
-        )
-    }
-
-    SegmentedColumn(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        title = if (uiState.isLkmMode) "" else stringResource(R.string.settings_section_maintenance),
-        content = listOf(
-            {
+            }
+            add {
                 SegmentedListItem(
                     onClick = showBottomSheet,
                     headlineContent = { Text(stringResource(id = R.string.send_log)) },
@@ -641,8 +657,8 @@ private fun SettingsMaterialContent(
                         )
                     },
                 )
-            },
-            {
+            }
+            add {
                 SegmentedListItem(
                     onClick = actions.onOpenAbout,
                     headlineContent = { Text(stringResource(id = R.string.about)) },
@@ -654,10 +670,45 @@ private fun SettingsMaterialContent(
                     },
                 )
             }
-        )
+        }
     )
     Spacer(modifier = Modifier.height(8.dp))
     Spacer(modifier = Modifier.height(bottomInnerPadding))
+}
+
+@Composable
+private fun CollapsibleSegmentedColumn(
+    modifier: Modifier = Modifier,
+    title: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    content: List<@Composable () -> Unit>,
+) {
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onExpandedChange(!expanded) }
+                .padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = title,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        if (expanded) {
+            SegmentedColumn(content = content)
+        }
+    }
 }
 
 @Composable
@@ -732,6 +783,58 @@ private fun StartupSoundDurationMaterialItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
+    )
+}
+
+@Composable
+private fun VideoBackgroundDurationMaterialItem(
+    durationSeconds: Int,
+    onDurationChange: (Int) -> Unit,
+) {
+    var sliderValue by remember(durationSeconds) { mutableFloatStateOf(durationSeconds.toFloat()) }
+    val currentSeconds = sliderValue.roundToInt()
+
+    SegmentedListItem(
+        headlineContent = { Text(stringResource(id = R.string.settings_video_background_duration)) },
+        supportingContent = {
+            Column {
+                Text(stringResource(id = R.string.settings_video_background_duration_summary))
+                Slider(
+                    value = sliderValue,
+                    onValueChange = {
+                        sliderValue = it
+                        onDurationChange(it.roundToInt())
+                    },
+                    valueRange = MIN_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS.toFloat()..
+                        MAX_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS.toFloat(),
+                    steps = MAX_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS -
+                        MIN_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS - 1,
+                )
+            }
+        },
+        leadingContent = {
+            Icon(Icons.Filled.Timer, stringResource(id = R.string.settings_video_background_duration))
+        },
+        trailingContent = {
+            Text(
+                text = stringResource(id = R.string.settings_video_background_duration_value, currentSeconds),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+    )
+}
+
+@Composable
+private fun backgroundSummary(
+    hasWallpaper: Boolean,
+    hasVideo: Boolean,
+): String {
+    return stringResource(
+        when {
+            hasVideo -> R.string.settings_video_background_selected_summary
+            hasWallpaper -> R.string.settings_wallpaper_selected_summary
+            else -> R.string.settings_background_summary
+        }
     )
 }
 

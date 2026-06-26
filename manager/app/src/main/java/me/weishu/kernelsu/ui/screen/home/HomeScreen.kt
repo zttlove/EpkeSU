@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.Dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +29,7 @@ import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.navigation3.Navigator
 import me.weishu.kernelsu.ui.navigation3.Route
+import me.weishu.kernelsu.ui.util.KernelStatusEvents
 import me.weishu.kernelsu.ui.viewmodel.HomeViewModel
 
 @Composable
@@ -44,12 +46,26 @@ fun HomePager(
     val loadingDialog = rememberLoadingDialog()
     val scope = rememberCoroutineScope()
     var installFeedbackActive by remember { mutableStateOf(false) }
+    val refreshTick by KernelStatusEvents.refreshTick.collectAsStateWithLifecycle()
 
     var hasActivated by remember { mutableStateOf(false) }
     if (isCurrentPage) hasActivated = true
 
     if (hasActivated) {
         LaunchedEffect(Unit) {
+            viewModel.refresh()
+        }
+    }
+
+    LifecycleResumeEffect(Unit) {
+        if (hasActivated) {
+            viewModel.refresh()
+        }
+        onPauseOrDispose {}
+    }
+
+    LaunchedEffect(refreshTick) {
+        if (hasActivated) {
             viewModel.refresh()
         }
     }
@@ -89,6 +105,7 @@ fun HomePager(
                 withContext(Dispatchers.Main) {
                     loadingDialog.hide()
                     Toast.makeText(context, R.string.jailbreak_timeout, Toast.LENGTH_LONG).show()
+                    KernelStatusEvents.requestRefresh()
                 }
             }
         },
@@ -97,6 +114,15 @@ fun HomePager(
     when (LocalInterfaceStyle.current) {
         InterfaceStyle.Skrootpro.value -> {
             HomePagerSkrootpro(
+                state = uiState,
+                actions = actions,
+                bottomInnerPadding = bottomInnerPadding,
+            )
+            return
+        }
+
+        InterfaceStyle.Delta.value -> {
+            HomePagerDelta(
                 state = uiState,
                 actions = actions,
                 bottomInnerPadding = bottomInnerPadding,

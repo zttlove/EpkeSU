@@ -1,6 +1,19 @@
 package me.weishu.kernelsu.ui.screen.settings
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -11,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +41,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.ElectricalServices
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Fence
 import androidx.compose.material.icons.rounded.FolderDelete
 import androidx.compose.material.icons.rounded.ImageSearch
@@ -37,28 +52,31 @@ import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.RemoveCircle
 import androidx.compose.material.icons.rounded.RemoveModerator
 import androidx.compose.material.icons.rounded.Storefront
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.InterfaceStyle
-import me.weishu.kernelsu.ui.component.CustomWallpaperBackground
 import me.weishu.kernelsu.ui.component.KsuIsValid
 import me.weishu.kernelsu.ui.component.dialog.rememberLoadingDialog
 import me.weishu.kernelsu.ui.component.liquid.globalLiquidGlassSurface
@@ -68,19 +86,19 @@ import me.weishu.kernelsu.ui.component.uninstalldialog.UninstallDialog
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
 import me.weishu.kernelsu.ui.theme.skrootproTopBarColors
 import me.weishu.kernelsu.ui.util.BlurredBar
+import me.weishu.kernelsu.ui.util.BUILTIN_MOUNT_MODE_MAGIC
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
-import me.weishu.kernelsu.ui.util.MAX_CUSTOM_STARTUP_SOUND_DURATION_SECONDS
+import me.weishu.kernelsu.ui.util.MAX_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
-import me.weishu.kernelsu.ui.util.MIN_CUSTOM_STARTUP_SOUND_DURATION_SECONDS
+import me.weishu.kernelsu.ui.util.MIN_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Slider
-import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.blur.layerBackdrop
@@ -90,7 +108,6 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
-import kotlin.math.roundToInt
 
 /**
  * @author weishu
@@ -113,7 +130,13 @@ fun SettingPagerMiuix(
     val showSendLogDialog = rememberSaveable { mutableStateOf(false) }
     val showWallpaperOpacitySlider = rememberSaveable { mutableStateOf(false) }
     val showWallpaperPassthroughOpacitySlider = rememberSaveable { mutableStateOf(false) }
-    val showStartupSoundDurationSlider = rememberSaveable { mutableStateOf(false) }
+    val showVideoBackgroundDurationSlider = rememberSaveable { mutableStateOf(false) }
+    var updatesExpanded by rememberSaveable { mutableStateOf(false) }
+    var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
+    var profilesExpanded by rememberSaveable { mutableStateOf(false) }
+    var rootFeaturesExpanded by rememberSaveable { mutableStateOf(false) }
+    var advancedExpanded by rememberSaveable { mutableStateOf(false) }
+    var maintenanceExpanded by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -143,16 +166,14 @@ fun SettingPagerMiuix(
             ) {
                 item {
                     KsuIsValid {
-                        SettingsSectionTitle(
-                            text = stringResource(R.string.settings_section_updates),
+                        CollapsibleMiuixSection(
+                            title = stringResource(R.string.settings_section_updates),
+                            summary = stringResource(R.string.settings_section_updates_summary),
+                            icon = Icons.Rounded.UploadFile,
+                            itemCount = UPDATES_ITEM_COUNT,
+                            expanded = updatesExpanded,
+                            onExpandedChange = { updatesExpanded = it },
                             topPadding = 12.dp,
-                        )
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .fillMaxWidth()
-                                .settingsLiquidGlassSurface(),
-                            colors = liquidGlassMiuixCardColors(),
                         ) {
                             SwitchPreference(
                                 title = stringResource(id = R.string.settings_module_check_update),
@@ -168,21 +189,35 @@ fun SettingPagerMiuix(
                                 checked = uiState.checkModuleUpdate,
                                 onCheckedChange = actions.onSetCheckModuleUpdate
                             )
+                            SwitchPreference(
+                                title = stringResource(id = R.string.settings_version_mismatch_warning),
+                                summary = stringResource(id = R.string.settings_version_mismatch_warning_summary),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.BugReport,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = stringResource(id = R.string.settings_version_mismatch_warning),
+                                        tint = colorScheme.onBackground
+                                    )
+                                },
+                                checked = uiState.showVersionMismatchWarning,
+                                onCheckedChange = actions.onSetShowVersionMismatchWarning
+                            )
                         }
                     }
 
-                    SettingsSectionTitle(text = stringResource(R.string.settings_section_appearance))
-                    Card(
-                        modifier = Modifier
-                            .padding(top = 6.dp)
-                            .fillMaxWidth()
-                            .settingsLiquidGlassSurface(),
-                        colors = liquidGlassMiuixCardColors(),
+                    CollapsibleMiuixSection(
+                        title = stringResource(R.string.settings_section_appearance),
+                        summary = stringResource(R.string.settings_section_appearance_summary),
+                        icon = Icons.Rounded.Palette,
+                        itemCount = uiState.appearanceSectionItemCount(),
+                        expanded = appearanceExpanded,
+                        onExpandedChange = { appearanceExpanded = it },
                     ) {
                         OverlayDropdownPreference(
                             title = stringResource(id = R.string.settings_ui_mode),
                             summary = stringResource(id = R.string.settings_ui_mode_summary),
-                            items = InterfaceStyle.entries.map { it.label },
+                            items = InterfaceStyle.entries.map { stringResource(it.labelRes) },
                             startAction = {
                                 Icon(
                                     Icons.Rounded.Dashboard,
@@ -257,176 +292,56 @@ fun SettingPagerMiuix(
                             onClick = actions.onOpenLauncherIcon
                         )
                         ArrowPreference(
-                            title = stringResource(id = R.string.settings_wallpaper),
-                            summary = stringResource(
-                                if (uiState.customWallpaperUri == null) {
-                                    R.string.settings_wallpaper_summary
-                                } else {
-                                    R.string.settings_wallpaper_selected_summary
-                                }
-                            ),
+                            title = stringResource(id = R.string.settings_navigation_icons),
+                            summary = stringResource(id = R.string.settings_navigation_icons_summary),
+                            startAction = {
+                                Icon(
+                                    Icons.Rounded.Apps,
+                                    modifier = Modifier.padding(end = 6.dp),
+                                    contentDescription = stringResource(id = R.string.settings_navigation_icons),
+                                    tint = colorScheme.onBackground
+                                )
+                            },
+                            onClick = actions.onOpenNavigationIcons
+                        )
+                        ArrowPreference(
+                            title = stringResource(id = R.string.home_card_wallpapers),
+                            summary = stringResource(id = R.string.home_card_wallpapers_summary),
                             startAction = {
                                 Icon(
                                     Icons.Rounded.Wallpaper,
                                     modifier = Modifier.padding(end = 6.dp),
-                                    contentDescription = stringResource(id = R.string.settings_wallpaper),
+                                    contentDescription = stringResource(id = R.string.home_card_wallpapers),
                                     tint = colorScheme.onBackground
                                 )
                             },
-                            onClick = actions.onPickWallpaper
+                            onClick = actions.onOpenHomeCardWallpapers
                         )
-                        if (uiState.customWallpaperUri != null) {
-                            ArrowPreference(
-                                title = stringResource(id = R.string.settings_wallpaper_crop),
-                                summary = stringResource(id = R.string.settings_wallpaper_crop_summary),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.ImageSearch,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = stringResource(id = R.string.settings_wallpaper_crop),
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                onClick = actions.onEditWallpaperCrop
-                            )
-                            var wallpaperOpacity by remember(uiState.customWallpaperOpacity) {
-                                mutableFloatStateOf(uiState.customWallpaperOpacity)
-                            }
-                            ArrowPreference(
-                                title = stringResource(id = R.string.settings_wallpaper_opacity),
-                                summary = stringResource(id = R.string.settings_wallpaper_opacity_summary),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Wallpaper,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = stringResource(id = R.string.settings_wallpaper_opacity),
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                endActions = {
-                                    Text(
-                                        text = "${(wallpaperOpacity * 100).roundToInt()}%",
-                                        color = colorScheme.onSurfaceVariantActions,
-                                    )
-                                },
-                                onClick = {
-                                    showWallpaperOpacitySlider.value = !showWallpaperOpacitySlider.value
-                                },
-                                holdDownState = showWallpaperOpacitySlider.value,
-                                bottomAction = {
-                                    Slider(
-                                        value = wallpaperOpacity,
-                                        onValueChange = {
-                                            wallpaperOpacity = it
-                                            actions.onSetWallpaperOpacity(it)
-                                        },
-                                        valueRange = MIN_CUSTOM_WALLPAPER_OPACITY..MAX_CUSTOM_WALLPAPER_OPACITY,
-                                        showKeyPoints = true,
-                                        keyPoints = listOf(0.1f, 0.3f, 0.5f, 0.8f),
-                                        magnetThreshold = 0.01f,
-                                        hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                                    )
-                                },
-                            )
-                            SwitchPreference(
-                                title = stringResource(id = R.string.settings_wallpaper_passthrough),
-                                summary = stringResource(id = R.string.settings_wallpaper_passthrough_summary),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Layers,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = stringResource(id = R.string.settings_wallpaper_passthrough),
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                checked = uiState.customWallpaperPassthroughEnabled,
-                                onCheckedChange = actions.onSetWallpaperPassthroughEnabled
-                            )
-                            if (uiState.customWallpaperPassthroughEnabled) {
-                                var passthroughOpacity by remember(uiState.customWallpaperPassthroughOpacity) {
-                                    mutableFloatStateOf(uiState.customWallpaperPassthroughOpacity)
-                                }
-                                ArrowPreference(
-                                    title = stringResource(id = R.string.settings_wallpaper_passthrough_opacity),
-                                    summary = stringResource(id = R.string.settings_wallpaper_passthrough_opacity_summary),
-                                    startAction = {
-                                        Icon(
-                                            Icons.Rounded.Layers,
-                                            modifier = Modifier.padding(end = 6.dp),
-                                            contentDescription = stringResource(id = R.string.settings_wallpaper_passthrough_opacity),
-                                            tint = colorScheme.onBackground
-                                        )
-                                    },
-                                    endActions = {
-                                        Text(
-                                            text = "${(passthroughOpacity * 100).roundToInt()}%",
-                                            color = colorScheme.onSurfaceVariantActions,
-                                        )
-                                    },
-                                    onClick = {
-                                        showWallpaperPassthroughOpacitySlider.value =
-                                            !showWallpaperPassthroughOpacitySlider.value
-                                    },
-                                    holdDownState = showWallpaperPassthroughOpacitySlider.value,
-                                    bottomAction = {
-                                        Slider(
-                                            value = passthroughOpacity,
-                                            onValueChange = {
-                                                passthroughOpacity = it
-                                                actions.onSetWallpaperPassthroughOpacity(it)
-                                            },
-                                            valueRange = MIN_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY..MAX_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY,
-                                            showKeyPoints = true,
-                                            keyPoints = listOf(0.0f, 0.25f, 0.45f, 0.65f),
-                                            magnetThreshold = 0.01f,
-                                            hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                                        )
-                                    },
-                                )
-                            }
-                            ArrowPreference(
-                                title = stringResource(id = R.string.settings_wallpaper_preview),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Visibility,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = stringResource(id = R.string.settings_wallpaper_preview),
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                onClick = actions.onPreviewWallpaper
-                            )
-                            ArrowPreference(
-                                title = stringResource(id = R.string.settings_wallpaper_clear),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Close,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = stringResource(id = R.string.settings_wallpaper_clear),
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                onClick = actions.onClearWallpaper
-                            )
-                        }
                         ArrowPreference(
-                            title = stringResource(id = R.string.settings_startup_sound),
-                            summary = stringResource(
-                                if (uiState.customStartupSoundUri == null) {
-                                    R.string.settings_startup_sound_summary
-                                } else {
-                                    R.string.settings_startup_sound_selected_summary
-                                }
-                            ),
+                            title = stringResource(id = R.string.settings_backgrounds),
+                            summary = stringResource(id = R.string.settings_backgrounds_summary),
+                            startAction = {
+                                Icon(
+                                    Icons.Rounded.Wallpaper,
+                                    modifier = Modifier.padding(end = 6.dp),
+                                    contentDescription = stringResource(id = R.string.settings_backgrounds),
+                                    tint = colorScheme.onBackground
+                                )
+                            },
+                            onClick = actions.onOpenBackgrounds
+                        )
+                        ArrowPreference(
+                            title = stringResource(id = R.string.settings_sound_effects),
+                            summary = stringResource(id = R.string.settings_sound_effects_summary),
                             startAction = {
                                 Icon(
                                     Icons.AutoMirrored.Rounded.VolumeUp,
                                     modifier = Modifier.padding(end = 6.dp),
-                                    contentDescription = stringResource(id = R.string.settings_startup_sound),
+                                    contentDescription = stringResource(id = R.string.settings_sound_effects),
                                     tint = colorScheme.onBackground
                                 )
                             },
-                            onClick = actions.onPickStartupSound
+                            onClick = actions.onOpenSoundEffects
                         )
                         ArrowPreference(
                             title = stringResource(id = R.string.settings_startup_animation),
@@ -473,85 +388,16 @@ fun SettingPagerMiuix(
                                 onClick = actions.onClearStartupAnimation
                             )
                         }
-                        if (uiState.customStartupSoundUri != null) {
-                            var startupSoundDuration by remember(uiState.customStartupSoundDurationSeconds) {
-                                mutableFloatStateOf(uiState.customStartupSoundDurationSeconds.toFloat())
-                            }
-                            ArrowPreference(
-                                title = stringResource(id = R.string.settings_startup_sound_duration),
-                                summary = stringResource(id = R.string.settings_startup_sound_duration_summary),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Timer,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = stringResource(id = R.string.settings_startup_sound_duration),
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                endActions = {
-                                    Text(
-                                        text = stringResource(
-                                            id = R.string.settings_startup_sound_duration_value,
-                                            startupSoundDuration.roundToInt(),
-                                        ),
-                                        color = colorScheme.onSurfaceVariantActions,
-                                    )
-                                },
-                                onClick = {
-                                    showStartupSoundDurationSlider.value = !showStartupSoundDurationSlider.value
-                                },
-                                holdDownState = showStartupSoundDurationSlider.value,
-                                bottomAction = {
-                                    Slider(
-                                        value = startupSoundDuration,
-                                        onValueChange = {
-                                            startupSoundDuration = it
-                                            actions.onSetStartupSoundDurationSeconds(it.roundToInt())
-                                        },
-                                        valueRange = MIN_CUSTOM_STARTUP_SOUND_DURATION_SECONDS.toFloat()..
-                                            MAX_CUSTOM_STARTUP_SOUND_DURATION_SECONDS.toFloat(),
-                                        showKeyPoints = true,
-                                        keyPoints = listOf(5f, 10f, 15f, 30f),
-                                        magnetThreshold = 0.01f,
-                                        hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                                    )
-                                },
-                            )
-                            ArrowPreference(
-                                title = stringResource(id = R.string.settings_startup_sound_preview),
-                                startAction = {
-                                    Icon(
-                                        Icons.AutoMirrored.Rounded.VolumeUp,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = stringResource(id = R.string.settings_startup_sound_preview),
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                onClick = actions.onPreviewStartupSound
-                            )
-                            ArrowPreference(
-                                title = stringResource(id = R.string.settings_startup_sound_clear),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Close,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = stringResource(id = R.string.settings_startup_sound_clear),
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                onClick = actions.onClearStartupSound
-                            )
-                        }
                     }
 
                     KsuIsValid {
-                        SettingsSectionTitle(text = stringResource(R.string.settings_section_profiles))
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .fillMaxWidth()
-                                .settingsLiquidGlassSurface(),
-                            colors = liquidGlassMiuixCardColors(),
+                        CollapsibleMiuixSection(
+                            title = stringResource(R.string.settings_section_profiles),
+                            summary = stringResource(R.string.settings_section_profiles_summary),
+                            icon = Icons.Rounded.Fence,
+                            itemCount = 1,
+                            expanded = profilesExpanded,
+                            onExpandedChange = { profilesExpanded = it },
                         ) {
                             val profileTemplate = stringResource(id = R.string.settings_profile_template)
                             ArrowPreference(
@@ -571,13 +417,13 @@ fun SettingPagerMiuix(
                     }
 
                     KsuIsValid {
-                        SettingsSectionTitle(text = stringResource(R.string.settings_section_root_features))
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .fillMaxWidth()
-                                .settingsLiquidGlassSurface(),
-                            colors = liquidGlassMiuixCardColors(),
+                        CollapsibleMiuixSection(
+                            title = stringResource(R.string.settings_section_root_features),
+                            summary = stringResource(R.string.settings_section_root_features_summary),
+                            icon = Icons.Rounded.RemoveModerator,
+                            itemCount = ROOT_FEATURES_ITEM_COUNT,
+                            expanded = rootFeaturesExpanded,
+                            onExpandedChange = { rootFeaturesExpanded = it },
                         ) {
                             val suCompatModeItems = listOf(
                                 stringResource(id = R.string.settings_mode_enable_by_default),
@@ -711,15 +557,30 @@ fun SettingPagerMiuix(
                                 checked = uiState.isAvcSpoofEnabled,
                                 onCheckedChange = actions.onSetAvcSpoofEnabled
                             )
+
+                            SwitchPreference(
+                                title = stringResource(id = R.string.settings_epkesu_hide),
+                                summary = stringResource(id = R.string.settings_epkesu_hide_summary),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.Visibility,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = stringResource(id = R.string.settings_epkesu_hide),
+                                        tint = colorScheme.onBackground
+                                    )
+                                },
+                                checked = uiState.isEpkesuHideEnabled,
+                                onCheckedChange = actions.onSetEpkesuHideEnabled
+                            )
                         }
 
-                        SettingsSectionTitle(text = stringResource(R.string.settings_section_advanced))
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .fillMaxWidth()
-                                .settingsLiquidGlassSurface(),
-                            colors = liquidGlassMiuixCardColors(),
+                        CollapsibleMiuixSection(
+                            title = stringResource(R.string.settings_section_advanced),
+                            summary = stringResource(R.string.settings_section_advanced_summary),
+                            icon = Icons.Rounded.DeveloperMode,
+                            itemCount = ADVANCED_ITEM_COUNT,
+                            expanded = advancedExpanded,
+                            onExpandedChange = { advancedExpanded = it },
                         ) {
                             SwitchPreference(
                                 title = stringResource(id = R.string.settings_umount_modules_default),
@@ -734,6 +595,69 @@ fun SettingPagerMiuix(
                                 },
                                 checked = uiState.isDefaultUmountModules,
                                 onCheckedChange = actions.onSetDefaultUmountModules
+                            )
+
+                            val builtinMountSummary = uiState.builtinMountConflict?.let {
+                                stringResource(id = R.string.settings_builtin_mount_conflict_summary, it)
+                            } ?: stringResource(id = R.string.settings_builtin_mount_summary)
+                            SwitchPreference(
+                                title = stringResource(id = R.string.settings_builtin_mount),
+                                summary = builtinMountSummary,
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.Layers,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = stringResource(id = R.string.settings_builtin_mount),
+                                        tint = colorScheme.onBackground
+                                    )
+                                },
+                                checked = uiState.isBuiltinMountEnabled,
+                                onCheckedChange = actions.onSetBuiltinMountEnabled
+                            )
+
+                            val builtinMountModeItems = listOf(
+                                stringResource(id = R.string.settings_builtin_mount_mode_overlay),
+                                stringResource(id = R.string.settings_builtin_mount_mode_magic),
+                            )
+                            OverlayDropdownPreference(
+                                title = stringResource(id = R.string.settings_builtin_mount_default_mode),
+                                summary = stringResource(id = R.string.settings_builtin_mount_default_mode_summary),
+                                items = builtinMountModeItems,
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.Apps,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = stringResource(id = R.string.settings_builtin_mount_default_mode),
+                                        tint = colorScheme.onBackground
+                                    )
+                                },
+                                selectedIndex = if (uiState.builtinMountDefaultMode == BUILTIN_MOUNT_MODE_MAGIC) 1 else 0,
+                                onSelectedIndexChange = actions.onSetBuiltinMountDefaultMode
+                            )
+
+                            ArrowPreference(
+                                title = stringResource(id = R.string.settings_builtin_mount_webui),
+                                summary = stringResource(
+                                    id = if (uiState.isBuiltinMountEnabled && uiState.isBuiltinMountWebUiAvailable) {
+                                        R.string.settings_builtin_mount_webui_summary
+                                    } else {
+                                        R.string.settings_builtin_mount_webui_disabled_summary
+                                    }
+                                ),
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.DeveloperMode,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = stringResource(id = R.string.settings_builtin_mount_webui),
+                                        tint = if (uiState.isBuiltinMountEnabled && uiState.isBuiltinMountWebUiAvailable) {
+                                            colorScheme.onBackground
+                                        } else {
+                                            colorScheme.disabledOnSecondaryVariant
+                                        }
+                                    )
+                                },
+                                enabled = uiState.isBuiltinMountEnabled && uiState.isBuiltinMountWebUiAvailable,
+                                onClick = actions.onOpenBuiltinMountWebUi
                             )
 
                             SwitchPreference(
@@ -768,15 +692,16 @@ fun SettingPagerMiuix(
                         }
                     }
 
-                    if (uiState.isLkmMode) {
-                        SettingsSectionTitle(text = stringResource(R.string.settings_section_maintenance))
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .fillMaxWidth()
-                                .settingsLiquidGlassSurface(),
-                            colors = liquidGlassMiuixCardColors(),
-                        ) {
+                    CollapsibleMiuixSection(
+                        title = stringResource(R.string.settings_section_maintenance),
+                        summary = stringResource(R.string.settings_section_maintenance_summary),
+                        icon = Icons.Rounded.BugReport,
+                        itemCount = uiState.maintenanceSectionItemCount(),
+                        expanded = maintenanceExpanded,
+                        onExpandedChange = { maintenanceExpanded = it },
+                        bottomPadding = 12.dp,
+                    ) {
+                        if (uiState.isLkmMode) {
                             val uninstall = stringResource(id = R.string.settings_uninstall)
                             ArrowPreference(
                                 title = uninstall,
@@ -796,17 +721,6 @@ fun SettingPagerMiuix(
                                 onDismissRequest = { showUninstallDialog.value = false }
                             )
                         }
-                    } else {
-                        SettingsSectionTitle(text = stringResource(R.string.settings_section_maintenance))
-                    }
-
-                    Card(
-                        modifier = Modifier
-                            .padding(top = 6.dp, bottom = 12.dp)
-                            .fillMaxWidth()
-                            .settingsLiquidGlassSurface(),
-                        colors = liquidGlassMiuixCardColors(),
-                    ) {
                         ArrowPreference(
                             title = stringResource(id = R.string.send_log),
                             startAction = {
@@ -848,14 +762,178 @@ fun SettingPagerMiuix(
 @Composable
 private fun SettingsSectionTitle(
     text: String,
+    summary: String,
+    icon: ImageVector,
+    itemCount: Int,
     topPadding: Dp = 18.dp,
+    expanded: Boolean? = null,
+    onClick: (() -> Unit)? = null,
 ) {
-    Text(
-        modifier = Modifier.padding(start = 16.dp, top = topPadding, bottom = 2.dp),
-        text = text,
-        color = colorScheme.primary,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Medium,
+    val expandedState = expanded == true
+    val rotation by animateFloatAsState(
+        targetValue = if (expandedState) 180f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "settingsSectionArrowRotation",
+    )
+    val shape = RoundedCornerShape(18.dp)
+    val countLabel = if (itemCount == 1) {
+        stringResource(R.string.settings_section_item_count_single)
+    } else {
+        stringResource(R.string.settings_section_item_count, itemCount)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = topPadding)
+            .clip(shape)
+            .background(
+                color = if (expandedState) {
+                    colorScheme.surfaceContainerHigh.copy(alpha = 0.82f)
+                } else {
+                    colorScheme.surfaceContainer.copy(alpha = 0.58f)
+                },
+                shape = shape,
+            )
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(start = 14.dp, top = 10.dp, end = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .background(
+                    color = colorScheme.primaryContainer.copy(alpha = if (expandedState) 0.78f else 0.52f),
+                    shape = RoundedCornerShape(13.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp, end = 8.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = text,
+                color = colorScheme.onSurface,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = summary,
+                color = colorScheme.onSurfaceVariantSummary,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            modifier = Modifier
+                .background(
+                    color = if (expandedState) {
+                        colorScheme.primaryContainer.copy(alpha = 0.72f)
+                    } else {
+                        colorScheme.surfaceContainerHigh.copy(alpha = 0.72f)
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                )
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+            text = countLabel,
+            color = if (expandedState) colorScheme.primary else colorScheme.onSurfaceVariantActions,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+        if (expanded != null) {
+            Icon(
+                imageVector = Icons.Rounded.ExpandMore,
+                contentDescription = text,
+                tint = colorScheme.primary,
+                modifier = Modifier
+                    .padding(start = 6.dp)
+                    .size(20.dp)
+                    .graphicsLayer { rotationZ = rotation },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CollapsibleMiuixSection(
+    title: String,
+    summary: String,
+    icon: ImageVector,
+    itemCount: Int,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    topPadding: Dp = 18.dp,
+    bottomPadding: Dp = 0.dp,
+    content: @Composable () -> Unit,
+) {
+    SettingsSectionTitle(
+        text = title,
+        summary = summary,
+        icon = icon,
+        itemCount = itemCount,
+        topPadding = topPadding,
+        expanded = expanded,
+        onClick = { onExpandedChange(!expanded) },
+    )
+    AnimatedVisibility(
+        visible = expanded,
+        enter = expandVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)),
+        exit = shrinkVertically(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
+                fadeOut(animationSpec = tween(140, easing = FastOutSlowInEasing)),
+    ) {
+        Card(
+            modifier = Modifier
+                .padding(top = 6.dp, bottom = bottomPadding)
+                .fillMaxWidth()
+                .settingsLiquidGlassSurface(),
+            colors = liquidGlassMiuixCardColors(),
+        ) {
+            content()
+        }
+    }
+}
+
+private const val UPDATES_ITEM_COUNT = 2
+private const val ROOT_FEATURES_ITEM_COUNT = 7
+private const val ADVANCED_ITEM_COUNT = 6
+
+private fun SettingsUiState.appearanceSectionItemCount(): Int {
+    var count = 10
+    if (customStartupAnimationUri != null) count += 2
+
+    return count
+}
+
+private fun SettingsUiState.maintenanceSectionItemCount(): Int {
+    return if (isLkmMode) 3 else 2
+}
+
+@Composable
+private fun backgroundSummary(
+    hasWallpaper: Boolean,
+    hasVideo: Boolean,
+): String {
+    return stringResource(
+        when {
+            hasVideo -> R.string.settings_video_background_selected_summary
+            hasWallpaper -> R.string.settings_wallpaper_selected_summary
+            else -> R.string.settings_background_summary
+        }
     )
 }
 

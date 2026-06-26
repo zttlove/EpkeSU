@@ -150,8 +150,7 @@ fun HomePagerSkrootpro(
                     Spacer(modifier = Modifier.height(5.dp))
                     SkrootproButton(
                         text = stringResource(R.string.skrootpro_parasite),
-                        onClick = {},
-                        enabled = false,
+                        onClick = actions.onJailbreakClick,
                         modifier = Modifier.fillMaxWidth(0.95f),
                     )
                 }

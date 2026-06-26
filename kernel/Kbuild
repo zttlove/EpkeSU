@@ -103,17 +103,16 @@ $(warning -- KernelSU: Git not detected, make sure git is installed in your PATH
 endif
 
 
+ifneq ($(KSU_FALLBACK_VERSION),)
+$(info -- KernelSU version: $(KSU_FALLBACK_VERSION) from $(KSU_VERSION_FILE))
+ccflags-y += -DKSU_VERSION=$(KSU_FALLBACK_VERSION)
+else
 # Calculate version if git version is available
 ifdef KSU_GIT_VERSION_VALID
 # ksu_version: major * 10000 + git version + 200 for historical reasons
 $(eval KSU_VERSION=$(shell expr 30000 + $(KSU_GIT_VERSION)))
 $(info -- KernelSU version: $(KSU_VERSION))
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
-else
-# If there is no .git directory, use default version
-ifneq ($(KSU_FALLBACK_VERSION),)
-$(info -- KernelSU version: $(KSU_FALLBACK_VERSION) from $(KSU_VERSION_FILE))
-ccflags-y += -DKSU_VERSION=$(KSU_FALLBACK_VERSION)
 else
 $(warning "KSU_GIT_VERSION not defined! It is better to make KernelSU a git repository!")
 ccflags-y += -DKSU_VERSION=16

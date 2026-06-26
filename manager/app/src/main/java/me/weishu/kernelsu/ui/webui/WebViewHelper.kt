@@ -25,7 +25,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.data.repository.ModuleRepositoryImpl
+import me.weishu.kernelsu.ui.util.HYBRID_MOUNT_MODULE_ID
 import me.weishu.kernelsu.ui.util.createRootShell
+import me.weishu.kernelsu.ui.util.getBuiltinMountStatus
 import me.weishu.kernelsu.ui.viewmodel.SuperUserViewModel
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -107,40 +109,72 @@ internal suspend fun prepareWebView(
         val modules = repo.getModules().getOrDefault(emptyList())
         val moduleInfo = modules.find { info -> info.id == moduleId }
 
-        if (moduleInfo == null) {
-            withContext(Dispatchers.Main) {
-                webUIState.uiEvent = WebUIEvent.Error(activity.getString(R.string.no_such_module, moduleId))
-            }
-            return@withContext
-        }
+        val moduleName: String
+        val moduleVersion: String
+        val moduleVersionCode: String
+        val modDir: String
+        val hasWebUiHint: Boolean
+        val isBuiltinModule: Boolean
 
-        if (!moduleInfo.enabled || moduleInfo.update || moduleInfo.remove) {
+        if (moduleInfo == null) {
+            if (moduleId != HYBRID_MOUNT_MODULE_ID) {
+                withContext(Dispatchers.Main) {
+                    webUIState.uiEvent = WebUIEvent.Error(activity.getString(R.string.no_such_module, moduleId))
+                }
+                return@withContext
+            }
+
+            val builtinMountStatus = getBuiltinMountStatus()
+            moduleName = builtinMountStatus.moduleName
+            moduleVersion = builtinMountStatus.version
+            moduleVersionCode = builtinMountStatus.versionCode
+            modDir = builtinMountStatus.modulePath
+            hasWebUiHint = builtinMountStatus.webUi
+            isBuiltinModule = true
+
+            if (!builtinMountStatus.enabled) {
+                withContext(Dispatchers.Main) {
+                    webUIState.uiEvent = WebUIEvent.Error(activity.getString(R.string.module_unavailable, moduleName))
+                }
+                return@withContext
+            }
+        } else if (!moduleInfo.enabled || moduleInfo.update || moduleInfo.remove) {
             withContext(Dispatchers.Main) {
                 webUIState.uiEvent = WebUIEvent.Error(activity.getString(R.string.module_unavailable, moduleInfo.name))
             }
             return@withContext
+        } else {
+            moduleName = moduleInfo.name
+            moduleVersion = moduleInfo.version
+            moduleVersionCode = moduleInfo.versionCode.toString()
+            modDir = "/data/adb/modules/${moduleId}"
+            hasWebUiHint = moduleInfo.hasWebUi
+            isBuiltinModule = false
         }
 
-        val modDir = "/data/adb/modules/${moduleId}"
         val shell = createRootShell(true)
-        val hasWebRoot = moduleInfo.hasWebUi || SuFile("$modDir/webroot").apply {
+        val hasWebRoot = hasWebUiHint || SuFile("$modDir/webroot").apply {
             setShell(shell)
         }.isDirectory
 
         if (!hasWebRoot) {
             shell.close()
             withContext(Dispatchers.Main) {
-                webUIState.uiEvent = WebUIEvent.Error(activity.getString(R.string.module_unavailable, moduleInfo.name))
+                webUIState.uiEvent = WebUIEvent.Error(activity.getString(R.string.module_unavailable, moduleName))
             }
             return@withContext
         }
 
-        webUIState.moduleName = moduleInfo.name
+        webUIState.moduleName = moduleName
+        webUIState.moduleId = moduleId
+        webUIState.moduleVersion = moduleVersion
+        webUIState.moduleVersionCode = moduleVersionCode
+        webUIState.isBuiltinModule = isBuiltinModule
         webUIState.modDir = modDir
         webUIState.rootShell = shell
 
         withContext(Dispatchers.Main) {
-            activity.setTaskDescription(activity.getString(R.string.app_name) + " - ${moduleInfo.name}")
+            activity.setTaskDescription(activity.getString(R.string.app_name) + " - ${moduleName}")
 
             val webView = WebView(activity)
             webView.setBackgroundColor(Color.TRANSPARENT)

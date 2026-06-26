@@ -7,4 +7,8 @@
     <color name="anime_blonde_background">#FFE2C7</color>
     <color name="anime_white_hair_background">#DDE4EB</color>
     <color name="anime_pink_hair_background">#222734</color>
+    <color name="fox_mask_background">#FF004C</color>
+    <color name="opera_mask_background">#00B09C</color>
+    <color name="sk_root_background">#0F172A</color>
+    <color name="grid_mark_background">#FFFFFF</color>
 </resources>

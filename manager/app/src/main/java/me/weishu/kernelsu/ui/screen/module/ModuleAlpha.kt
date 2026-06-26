@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Undo
@@ -54,6 +53,7 @@ import me.weishu.kernelsu.ui.component.alpha.AlphaButton
 import me.weishu.kernelsu.ui.component.alpha.AlphaCard
 import me.weishu.kernelsu.ui.component.alpha.AlphaColors
 import me.weishu.kernelsu.ui.component.alpha.AlphaOutlinedButton
+import me.weishu.kernelsu.ui.component.alpha.AlphaShapes
 import me.weishu.kernelsu.ui.component.alpha.AlphaScreen
 import me.weishu.kernelsu.ui.component.alpha.AlphaSwitch
 import me.weishu.kernelsu.ui.component.alpha.alphaSp
@@ -199,7 +199,7 @@ private fun AlphaModuleSearch(
         modifier = Modifier
             .fillMaxWidth()
             .height(44.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(AlphaShapes.Control)
             .background(AlphaColors.Surface)
             .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -242,7 +242,7 @@ private fun AlphaModuleSearch(
             Box(
                 modifier = Modifier
                     .size(34.dp)
-                    .clip(RoundedCornerShape(17.dp))
+                    .clip(AlphaShapes.Button)
                     .background(AlphaColors.SurfaceStrong)
                     .clickable(onClick = onClearSearch),
                 contentAlignment = Alignment.Center,
@@ -300,7 +300,7 @@ private fun AlphaModuleCard(
                                 fontWeight = FontWeight.Black,
                                 modifier = Modifier
                                     .padding(start = 6.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(AlphaShapes.Control)
                                     .background(AlphaColors.AccentSoft)
                                     .padding(horizontal = 5.dp, vertical = 1.dp),
                             )

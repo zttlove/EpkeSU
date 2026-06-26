@@ -76,6 +76,15 @@ fun SuperUserPager(
             return
         }
 
+        InterfaceStyle.Delta.value -> {
+            SuperUserPagerDelta(
+                uiState = uiState,
+                actions = actions,
+                bottomInnerPadding = bottomInnerPadding,
+            )
+            return
+        }
+
         InterfaceStyle.Alpha.value -> {
             SuperUserPagerAlpha(
                 uiState = uiState,

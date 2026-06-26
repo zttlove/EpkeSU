@@ -1,6 +1,7 @@
 #include <linux/err.h>
 #include <linux/fs.h>
 #include <linux/list.h>
+#include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/types.h>
@@ -13,8 +14,11 @@
 #include "manager/throne_tracker.h"
 
 uid_t ksu_manager_appid = KSU_INVALID_APPID;
+int ksu_manager_appid_param = KSU_INVALID_APPID;
+module_param_named(manager_appid, ksu_manager_appid_param, int, 0);
 
 #define SYSTEM_PACKAGES_LIST_PATH "/data/system/packages.list"
+#define KSU_APPID(uid) ((uid) % KSU_PER_USER_RANGE)
 
 struct uid_data {
     struct list_head list;
@@ -38,7 +42,7 @@ static void crown_manager(const char *apk, struct list_head *uid_data)
     list_for_each_entry (np, list, list) {
         if (strncmp(np->package, pkg, KSU_MAX_PACKAGE_NAME) == 0) {
             pr_info("Crowning manager: %s(uid=%d)\n", pkg, np->uid);
-            ksu_set_manager_appid(np->uid);
+            ksu_set_manager_appid(KSU_APPID(np->uid));
             break;
         }
     }
@@ -235,7 +239,8 @@ static bool is_uid_exist(uid_t uid, char *package, void *data)
 
     bool exist = false;
     list_for_each_entry (np, list, list) {
-        if (np->uid == uid % PER_USER_RANGE && strncmp(np->package, package, KSU_MAX_PACKAGE_NAME) == 0) {
+        if (KSU_APPID(np->uid) == KSU_APPID(uid) &&
+            strncmp(np->package, package, KSU_MAX_PACKAGE_NAME) == 0) {
             exist = true;
             break;
         }
@@ -294,7 +299,7 @@ void track_throne(bool prune_only)
             break;
         }
         data->uid = res;
-        strncpy(data->package, package, KSU_MAX_PACKAGE_NAME);
+        strscpy(data->package, package, sizeof(data->package));
         list_add_tail(&data->list, &uid_list);
         // reset line start
         line_start = pos;
@@ -311,7 +316,7 @@ void track_throne(bool prune_only)
     // first, check if manager_uid exist!
     bool manager_exist = false;
     list_for_each_entry (np, &uid_list, list) {
-        if (np->uid == ksu_get_manager_appid()) {
+        if (KSU_APPID(np->uid) == ksu_get_manager_appid()) {
             manager_exist = true;
             break;
         }
@@ -341,7 +346,10 @@ out:
 
 void __init ksu_throne_tracker_init()
 {
-    // nothing to do
+    if (ksu_manager_appid_param >= 0 && ksu_manager_appid_param < KSU_PER_USER_RANGE) {
+        ksu_set_manager_appid(ksu_manager_appid_param);
+        pr_info("manager appid initialized from module param: %d\n", ksu_manager_appid_param);
+    }
 }
 
 void __exit ksu_throne_tracker_exit()

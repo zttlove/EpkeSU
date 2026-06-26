@@ -2,6 +2,7 @@ package me.weishu.kernelsu.ui.viewmodel
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,9 +13,26 @@ import me.weishu.kernelsu.data.repository.SettingsRepositoryImpl
 import me.weishu.kernelsu.ksuApp
 import me.weishu.kernelsu.ui.InterfaceStyle
 import me.weishu.kernelsu.ui.UiMode
+import me.weishu.kernelsu.ui.theme.AppSettings
+import me.weishu.kernelsu.ui.theme.DELTA_COLOR_VARIANT_KEY
+import me.weishu.kernelsu.ui.theme.DeltaColorVariant
 import me.weishu.kernelsu.ui.theme.THEME_SYNC_STRATEGY_KEY
 import me.weishu.kernelsu.ui.theme.ThemeController
+import me.weishu.kernelsu.ui.theme.ThemePreset
 import me.weishu.kernelsu.ui.theme.ThemePreferenceKeys
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSlot
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSet
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundSet
+import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
+import me.weishu.kernelsu.ui.util.CUSTOM_PAGE_BACKGROUND_PREFERENCE_KEYS
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_AUDIO_VOLUME
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_BACKGROUND_MUSIC_VOLUME
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_OPACITY
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
+import me.weishu.kernelsu.ui.util.CUSTOM_BACKGROUND_MUSIC_URI_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_BACKGROUND_MUSIC_VOLUME_KEY
+import me.weishu.kernelsu.ui.util.CUSTOM_CLICK_SOUND_VOLUME_KEY
 
 class MainActivityViewModel(
     savedStateHandle: SavedStateHandle,
@@ -25,11 +43,11 @@ class MainActivityViewModel(
     private val mainPageState = MainPageState(savedStateHandle)
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == null || key in observedKeys) {
-            _uiState.value = readUiState()
+            _uiState.value = readUiStateSafely()
         }
     }
 
-    private val _uiState = MutableStateFlow(readUiState())
+    private val _uiState = MutableStateFlow(readUiStateSafely())
     val uiState: StateFlow<MainActivityUiState> = _uiState.asStateFlow()
     val selectedMainPage: StateFlow<Int> = mainPageState.selectedPage
 
@@ -44,6 +62,13 @@ class MainActivityViewModel(
 
     fun setSelectedMainPage(page: Int) {
         mainPageState.updateSelectedPage(page)
+    }
+
+    private fun readUiStateSafely(): MainActivityUiState {
+        return runCatching { readUiState() }.getOrElse {
+            Log.e(TAG, "read activity settings failed", it)
+            fallbackUiState()
+        }
     }
 
     private fun readUiState(): MainActivityUiState {
@@ -64,12 +89,59 @@ class MainActivityViewModel(
             customWallpaperCrop = settingRepo.customWallpaperCrop,
             customWallpaperPassthroughEnabled = settingRepo.customWallpaperPassthroughEnabled,
             customWallpaperPassthroughOpacity = settingRepo.customWallpaperPassthroughOpacity,
+            customVideoBackgroundUri = settingRepo.customVideoBackgroundUri,
+            customVideoBackgroundDurationSeconds = settingRepo.customVideoBackgroundDurationSeconds,
+            customPageBackgrounds = settingRepo.customPageBackgrounds,
             customStartupAnimationUri = settingRepo.customStartupAnimationUri,
             customStartupSoundUri = settingRepo.customStartupSoundUri,
+            customClickSoundUri = settingRepo.customClickSoundUri,
+            customClickSoundVolume = settingRepo.customClickSoundVolume,
+            customBackgroundMusicUri = settingRepo.customBackgroundMusicUri,
+            customBackgroundMusicVolume = settingRepo.customBackgroundMusicVolume,
+            customNavigationIcons = settingRepo.customNavigationIcons,
+            deltaColorVariant = settingRepo.deltaColorVariant,
+        )
+    }
+
+    private fun fallbackUiState(): MainActivityUiState {
+        val preset = ThemePreset.CLEAN_TOOL
+        return MainActivityUiState(
+            appSettings = AppSettings(
+                colorMode = preset.colorMode,
+                keyColor = preset.keyColor,
+                paletteStyle = preset.paletteStyle,
+                colorSpec = preset.colorSpec,
+            ),
+            pageScale = 1f,
+            fontScale = 1f,
+            blurIntensity = 1f,
+            enableBlur = false,
+            enableFloatingBottomBar = false,
+            enableFloatingBottomBarBlur = false,
+            uiMode = UiMode.fromValue(InterfaceStyle.Miuix.value),
+            interfaceStyle = InterfaceStyle.Miuix.value,
+            customWallpaperUri = null,
+            customWallpaperOpacity = DEFAULT_CUSTOM_WALLPAPER_OPACITY,
+            customWallpaperCrop = CustomWallpaperCrop(),
+            customWallpaperPassthroughEnabled = false,
+            customWallpaperPassthroughOpacity = DEFAULT_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY,
+            customVideoBackgroundUri = null,
+            customVideoBackgroundDurationSeconds = DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS,
+            customPageBackgrounds = CustomPageBackgroundSet(),
+            customStartupAnimationUri = null,
+            customStartupSoundUri = null,
+            customClickSoundUri = null,
+            customClickSoundVolume = DEFAULT_CUSTOM_AUDIO_VOLUME,
+            customBackgroundMusicUri = null,
+            customBackgroundMusicVolume = DEFAULT_CUSTOM_BACKGROUND_MUSIC_VOLUME,
+            customNavigationIcons = CustomNavigationIconSet(),
+            deltaColorVariant = DeltaColorVariant.DEFAULT_VALUE,
         )
     }
 
     private companion object {
+        private const val TAG = "MainActivityViewModel"
+
         val observedKeys = buildSet {
             add(THEME_SYNC_STRATEGY_KEY)
             addAll(ThemePreferenceKeys)
@@ -81,6 +153,7 @@ class MainActivityViewModel(
             addAll(
                 listOf(
             "ui_mode",
+            DELTA_COLOR_VARIANT_KEY,
             "custom_wallpaper_uri",
             "custom_wallpaper_opacity",
             "custom_wallpaper_crop_left",
@@ -89,10 +162,24 @@ class MainActivityViewModel(
             "custom_wallpaper_crop_bottom",
             "custom_wallpaper_passthrough_enabled",
             "custom_wallpaper_passthrough_opacity",
+            "custom_video_background_uri",
+            "custom_video_background_duration_seconds",
             "custom_startup_animation_uri",
             "custom_startup_sound_uri",
+            "custom_click_sound_uri",
+            CUSTOM_CLICK_SOUND_VOLUME_KEY,
+            CUSTOM_BACKGROUND_MUSIC_URI_KEY,
+            CUSTOM_BACKGROUND_MUSIC_VOLUME_KEY,
                 )
             )
+            CustomNavigationIconSlot.entries.forEach { slot ->
+                add(slot.uriKey)
+                add(slot.cropLeftKey)
+                add(slot.cropTopKey)
+                add(slot.cropRightKey)
+                add(slot.cropBottomKey)
+            }
+            addAll(CUSTOM_PAGE_BACKGROUND_PREFERENCE_KEYS)
         }
     }
 }

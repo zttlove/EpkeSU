@@ -1,5 +1,6 @@
 package me.weishu.kernelsu.ui.screen.settings
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -10,8 +11,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import android.widget.Toast
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.compose.viewModel
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.InterfaceStyle
@@ -21,16 +24,19 @@ import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.component.StartupAnimationOverlay
 import me.weishu.kernelsu.ui.navigation3.Navigator
 import me.weishu.kernelsu.ui.navigation3.Route
+import me.weishu.kernelsu.ui.util.CUSTOM_BACKGROUND_MIME_TYPES
+import me.weishu.kernelsu.ui.util.CUSTOM_STARTUP_ANIMATION_MIME_TYPES
 import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_URI_KEY
+import me.weishu.kernelsu.ui.util.HYBRID_MOUNT_MODULE_ID
+import me.weishu.kernelsu.ui.util.isCustomVideoBackground
 import me.weishu.kernelsu.ui.util.persistCustomImageReference
 import me.weishu.kernelsu.ui.util.releasePersistableStartupAnimationReadPermission
-import me.weishu.kernelsu.ui.util.releasePersistableAudioReadPermission
-import me.weishu.kernelsu.ui.util.StartupSoundPlayer
 import me.weishu.kernelsu.ui.util.isCustomStartupAnimationVideo
 import me.weishu.kernelsu.ui.util.takePersistableStartupAnimationReadPermission
-import me.weishu.kernelsu.ui.util.takePersistableAudioReadPermission
 import me.weishu.kernelsu.ui.util.takePersistableImageReadPermission
+import me.weishu.kernelsu.ui.util.takePersistableVideoBackgroundReadPermission
 import me.weishu.kernelsu.ui.viewmodel.SettingsViewModel
+import me.weishu.kernelsu.ui.webui.WebUIActivity
 
 @Composable
 fun SettingPager(
@@ -42,6 +48,7 @@ fun SettingPager(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val showManagerNameDialog = rememberSaveable { mutableStateOf(false) }
     val showWallpaperPreview = rememberSaveable { mutableStateOf(false) }
+    val showVideoBackgroundPreview = rememberSaveable { mutableStateOf(false) }
     val showWallpaperCropEditor = rememberSaveable { mutableStateOf(false) }
     val showStartupAnimationPreview = rememberSaveable { mutableStateOf(false) }
     val startupAnimationPreviewUri = rememberSaveable { mutableStateOf<String?>(null) }
@@ -49,21 +56,29 @@ fun SettingPager(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        val uriString = persistCustomImageReference(context, uri, CUSTOM_WALLPAPER_URI_KEY)
-            ?: uri.toString().also { takePersistableImageReadPermission(context, uri) }
-        viewModel.setCustomWallpaperUri(uriString)
-        showWallpaperCropEditor.value = true
+        if (isCustomVideoBackground(context, uri)) {
+            takePersistableVideoBackgroundReadPermission(context, uri)
+            viewModel.setCustomVideoBackgroundUri(uri.toString())
+            showWallpaperPreview.value = false
+            showWallpaperCropEditor.value = false
+            showVideoBackgroundPreview.value = true
+        } else {
+            val uriString = persistCustomImageReference(context, uri, CUSTOM_WALLPAPER_URI_KEY)
+                ?: uri.toString().also { takePersistableImageReadPermission(context, uri) }
+            viewModel.setCustomWallpaperUri(uriString)
+            showVideoBackgroundPreview.value = false
+            showWallpaperCropEditor.value = true
+        }
     }
-    val startupSoundLauncher = rememberLauncherForActivityResult(
+    val videoBackgroundLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        StartupSoundPlayer.clearAutoPlaySuppression()
         uri ?: return@rememberLauncherForActivityResult
-        takePersistableAudioReadPermission(context, uri)
-        viewModel.setCustomStartupSoundUri(uri.toString())
-        StartupSoundPlayer.play(context, uri.toString()) {
-            Toast.makeText(context, R.string.settings_startup_sound_play_failed, Toast.LENGTH_SHORT).show()
-        }
+        takePersistableVideoBackgroundReadPermission(context, uri)
+        viewModel.setCustomVideoBackgroundUri(uri.toString())
+        showWallpaperPreview.value = false
+        showWallpaperCropEditor.value = false
+        showVideoBackgroundPreview.value = true
     }
     val startupAnimationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -85,26 +100,52 @@ fun SettingPager(
 
     val actions = SettingsScreenActions(
         onSetCheckModuleUpdate = viewModel::setCheckModuleUpdate,
+        onSetShowVersionMismatchWarning = viewModel::setShowVersionMismatchWarning,
         onOpenTheme = { navigator.push(Route.ColorPalette) },
         onOpenThemeStore = { navigator.push(Route.ThemeStore) },
         onSetUiModeIndex = { index ->
             viewModel.setUiMode(InterfaceStyle.fromIndex(index).value)
         },
         onOpenLauncherIcon = { navigator.push(Route.LauncherIcon) },
+        onOpenNavigationIcons = { navigator.push(Route.NavigationIcons) },
+        onOpenHomeCardWallpapers = { navigator.push(Route.HomeCardWallpapers) },
+        onOpenBackgrounds = { navigator.push(Route.Backgrounds) },
+        onOpenSoundEffects = { navigator.push(Route.SoundEffects) },
         onEditCustomManagerName = { showManagerNameDialog.value = true },
         onSetCustomManagerName = viewModel::setCustomManagerName,
-        onPickWallpaper = { wallpaperLauncher.launch(arrayOf("image/*")) },
-        onPreviewWallpaper = { showWallpaperPreview.value = true },
+        onPickWallpaper = { wallpaperLauncher.launch(CUSTOM_BACKGROUND_MIME_TYPES) },
+        onPreviewWallpaper = {
+            if (uiState.customVideoBackgroundUri.isNullOrBlank()) {
+                showWallpaperPreview.value = true
+            } else {
+                showVideoBackgroundPreview.value = true
+            }
+        },
         onEditWallpaperCrop = { showWallpaperCropEditor.value = true },
         onClearWallpaper = {
             viewModel.clearCustomWallpaper()
+            viewModel.clearCustomVideoBackground()
             showWallpaperPreview.value = false
+            showVideoBackgroundPreview.value = false
             showWallpaperCropEditor.value = false
         },
         onSetWallpaperOpacity = viewModel::setCustomWallpaperOpacity,
         onSetWallpaperCrop = viewModel::setCustomWallpaperCrop,
         onSetWallpaperPassthroughEnabled = viewModel::setCustomWallpaperPassthroughEnabled,
         onSetWallpaperPassthroughOpacity = viewModel::setCustomWallpaperPassthroughOpacity,
+        onPickVideoBackground = { videoBackgroundLauncher.launch(arrayOf("video/*")) },
+        onPreviewVideoBackground = { showVideoBackgroundPreview.value = true },
+        onClearVideoBackground = {
+            viewModel.clearCustomVideoBackground()
+            showVideoBackgroundPreview.value = false
+        },
+        onSetVideoBackgroundDurationSeconds = viewModel::setCustomVideoBackgroundDurationSeconds,
+        onSetPageBackgroundWallpaper = viewModel::setCustomPageBackgroundWallpaper,
+        onSetPageBackgroundVideo = viewModel::setCustomPageBackgroundVideo,
+        onSetPageBackgroundOpacity = viewModel::setCustomPageBackgroundOpacity,
+        onSetPageBackgroundCrop = viewModel::setCustomPageBackgroundCrop,
+        onSetPageBackgroundVideoDurationSeconds = viewModel::setCustomPageBackgroundVideoDurationSeconds,
+        onClearPageBackground = viewModel::clearCustomPageBackground,
         onSaveCustomThemePreset = viewModel::saveCustomThemePreset,
         onApplyCustomThemePreset = viewModel::applyCustomThemePreset,
         onRenameCustomThemePreset = viewModel::renameCustomThemePreset,
@@ -112,7 +153,7 @@ fun SettingPager(
         onSetThemeSyncStrategy = viewModel::setThemeSyncStrategy,
         onResetThemeToDefault = viewModel::resetThemeToDefault,
         onPickStartupAnimation = {
-            startupAnimationLauncher.launch(arrayOf("image/*", "video/*"))
+            startupAnimationLauncher.launch(CUSTOM_STARTUP_ANIMATION_MIME_TYPES)
         },
         onPreviewStartupAnimation = {
             uiState.customStartupAnimationUri?.let { uri ->
@@ -126,21 +167,6 @@ fun SettingPager(
             showStartupAnimationPreview.value = false
             startupAnimationPreviewUri.value = null
         },
-        onPickStartupSound = {
-            StartupSoundPlayer.suppressNextAutoPlay()
-            startupSoundLauncher.launch(arrayOf("audio/*"))
-        },
-        onPreviewStartupSound = {
-            StartupSoundPlayer.play(context, uiState.customStartupSoundUri) {
-                Toast.makeText(context, R.string.settings_startup_sound_play_failed, Toast.LENGTH_SHORT).show()
-            }
-        },
-        onClearStartupSound = {
-            StartupSoundPlayer.stop()
-            releasePersistableAudioReadPermission(context, uiState.customStartupSoundUri)
-            viewModel.clearCustomStartupSound()
-        },
-        onSetStartupSoundDurationSeconds = viewModel::setCustomStartupSoundDurationSeconds,
         onOpenProfileTemplate = { navigator.push(Route.AppProfileTemplate) },
         onSetSuCompatMode = viewModel::setSuCompatMode,
         onSetKernelUmountEnabled = viewModel::setKernelUmountEnabled,
@@ -149,14 +175,30 @@ fun SettingPager(
         onSetAdbRootEnabled = viewModel::setAdbRootEnabled,
         onSetAvcSpoofEnabled = viewModel::setAvcSpoofEnabled,
         onSetDefaultUmountModules = viewModel::setDefaultUmountModules,
+        onSetBuiltinMountEnabled = viewModel::setBuiltinMountEnabled,
+        onSetBuiltinMountDefaultMode = viewModel::setBuiltinMountDefaultMode,
+        onOpenBuiltinMountWebUi = {
+            context.startActivity(
+                Intent(context, WebUIActivity::class.java)
+                    .setData("kernelsu://webui/$HYBRID_MOUNT_MODULE_ID".toUri())
+                    .putExtra("id", HYBRID_MOUNT_MODULE_ID)
+            )
+        },
+        onSetEpkesuHideEnabled = viewModel::setEpkesuHideEnabled,
         onSetEnableWebDebugging = viewModel::setEnableWebDebugging,
         onSetAutoJailbreak = viewModel::setAutoJailbreak,
-        onOpenAbout = { navigator.push(Route.About) },
+        onSetDeltaColorVariant = viewModel::setDeltaColorVariant,
+        onOpenAbout = dropUnlessResumed {
+            if (navigator.current() !is Route.About) {
+                navigator.push(Route.About)
+            }
+        },
     )
 
     Box {
         when (LocalInterfaceStyle.current) {
             InterfaceStyle.Skrootpro.value -> SettingPagerSkrootpro(uiState, actions, bottomInnerPadding)
+            InterfaceStyle.Delta.value -> SettingPagerDelta(uiState, actions, bottomInnerPadding)
             InterfaceStyle.Alpha.value -> SettingPagerAlpha(uiState, actions, bottomInnerPadding)
             else -> {
                 when (LocalUiMode.current) {
@@ -196,6 +238,15 @@ fun SettingPager(
         passthroughEnabled = uiState.customWallpaperPassthroughEnabled,
         passthroughOpacity = uiState.customWallpaperPassthroughOpacity,
         onDismissRequest = { showWallpaperPreview.value = false },
+    )
+    SettingsVideoBackgroundPreviewDialog(
+        show = showVideoBackgroundPreview.value,
+        uriString = uiState.customVideoBackgroundUri,
+        durationSeconds = uiState.customVideoBackgroundDurationSeconds,
+        opacity = uiState.customWallpaperOpacity,
+        passthroughEnabled = uiState.customWallpaperPassthroughEnabled,
+        passthroughOpacity = uiState.customWallpaperPassthroughOpacity,
+        onDismissRequest = { showVideoBackgroundPreview.value = false },
     )
     SettingsWallpaperCropDialog(
         show = showWallpaperCropEditor.value,

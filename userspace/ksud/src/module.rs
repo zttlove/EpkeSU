@@ -103,10 +103,14 @@ fn exec_install_script(module_file: &str, is_metamodule: bool, module_id: &str) 
     let result = Command::new(assets::BUSYBOX_PATH)
         .args(["sh", "-c", &install_script])
         .envs(get_common_script_envs(Some(module_id)))
+        .env("BOOTMODE", "true")
         .env("OUTFD", "1")
         .env("ZIPFILE", realpath)
         .status()?;
-    ensure!(result.success(), "Failed to install module script");
+    ensure!(
+        result.success(),
+        "Failed to install module script: {result}"
+    );
     Ok(())
 }
 
@@ -142,6 +146,9 @@ pub fn foreach_module(
             warn!("{} is not a directory, skip", path.display());
             continue;
         }
+        if crate::builtin_mount::is_compat_module_entry(&path) {
+            continue;
+        }
 
         if module_type == Active && path.join(defs::DISABLE_FILE_NAME).exists() {
             info!("{} is disabled, skip", path.display());
@@ -164,19 +171,28 @@ fn foreach_active_module(f: impl FnMut(&Path) -> Result<()>) -> Result<()> {
 
 pub fn load_sepolicy_rule() -> Result<()> {
     foreach_active_module(|path| {
-        let rule_file = path.join("sepolicy.rule");
-        if !rule_file.exists() {
-            return Ok(());
-        }
-        info!("load policy: {}", &rule_file.display());
-
-        if sepolicy::apply_file(&rule_file).is_err() {
-            warn!("Failed to load sepolicy.rule for {}", &rule_file.display());
-        }
+        load_sepolicy_rule_from(path);
         Ok(())
     })?;
 
+    if let Some(metamodule_path) = metamodule::get_metamodule_path()
+        && !metamodule_path.starts_with(defs::MODULE_DIR)
+    {
+        load_sepolicy_rule_from(&metamodule_path);
+    }
     Ok(())
+}
+
+fn load_sepolicy_rule_from(path: &Path) {
+    let rule_file = path.join("sepolicy.rule");
+    if !rule_file.exists() {
+        return;
+    }
+    info!("load policy: {}", &rule_file.display());
+
+    if sepolicy::apply_file(&rule_file).is_err() {
+        warn!("Failed to load sepolicy.rule for {}", &rule_file.display());
+    }
 }
 
 fn safe_log_name(name: &str) -> String {
@@ -354,17 +370,7 @@ pub fn exec_script<T: AsRef<Path>>(path: T, wait: bool) -> Result<()> {
     let path = path.as_ref();
     info!("exec {}", path.display());
 
-    let is_module_script = path.starts_with(defs::MODULE_DIR);
-    // Extract module_id from path if it matches /data/adb/modules/{id}/...
-    let module_id = if is_module_script {
-        path.strip_prefix(defs::MODULE_DIR)
-            .ok()
-            .and_then(|p| p.components().next())
-            .and_then(|c| c.as_os_str().to_str())
-            .map(ToString::to_string)
-    } else {
-        None
-    };
+    let module_id = module_id_from_script_path(path);
 
     // Validate and log module_id extraction
     let validated_module_id = module_id
@@ -383,7 +389,7 @@ pub fn exec_script<T: AsRef<Path>>(path: T, wait: bool) -> Result<()> {
             }
         });
 
-    if is_module_script && module_id.is_none() {
+    if module_id.is_none() {
         debug!(
             "Failed to extract module_id from script path '{}'. Script will run without KSU_MODULE environment variable.",
             path.display()
@@ -435,6 +441,21 @@ pub fn exec_script<T: AsRef<Path>>(path: T, wait: bool) -> Result<()> {
             .map(|_| ())
             .map_err(|e| anyhow!("Failed to exec {}: {e}", path.display()))
     }
+}
+
+fn module_id_from_script_path(path: &Path) -> Option<String> {
+    if path.starts_with(defs::MODULE_DIR) {
+        return path
+            .strip_prefix(defs::MODULE_DIR)
+            .ok()
+            .and_then(|p| p.components().next())
+            .and_then(|c| c.as_os_str().to_str())
+            .map(ToString::to_string);
+    }
+
+    path.parent()
+        .and_then(|module_path| read_module_prop(module_path).ok())
+        .and_then(|props| props.get("id").cloned())
 }
 
 pub fn exec_stage_script(stage: &str, block: bool) -> Result<()> {
@@ -1083,6 +1104,9 @@ fn list_module(path: &str) -> Vec<HashMap<String, String>> {
         let path = entry.path();
         info!("path: {}", path.display());
 
+        if crate::builtin_mount::is_compat_module_entry(&path) {
+            continue;
+        }
         if !path.join("module.prop").exists() {
             continue;
         }

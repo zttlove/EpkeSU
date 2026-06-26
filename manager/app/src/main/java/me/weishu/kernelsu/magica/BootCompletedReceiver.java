@@ -5,6 +5,7 @@ import static me.weishu.kernelsu.magica.AppZygotePreload.TAG;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.UserManager;
 import android.util.Log;
 
 import me.weishu.kernelsu.BuildConfig;
@@ -26,7 +27,12 @@ public class BootCompletedReceiver extends BroadcastReceiver {
         }
         if (KsuCliKt.rootAvailable()) return;
         try {
-            context.startService(new Intent(context, MagicaService.class));
+            var userContext = context;
+            var userManager = context.getSystemService(UserManager.class);
+            if (userManager != null && !userManager.isUserUnlocked()) {
+                userContext = context.createDeviceProtectedStorageContext();
+            }
+            userContext.startService(new Intent(userContext, MagicaService.class));
             Log.i(TAG, "MagicaService started from boot action: " + action);
         } catch (Throwable e) {
 

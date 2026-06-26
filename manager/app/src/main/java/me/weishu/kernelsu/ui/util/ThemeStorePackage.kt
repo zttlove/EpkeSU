@@ -17,7 +17,7 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 private const val THEME_STORE_SCHEMA = "io.github.fixz.epkesu.theme"
-private const val THEME_STORE_VERSION = 1
+private const val THEME_STORE_VERSION = 2
 private const val MAX_THEME_STORE_ENTRY_COUNT = 64
 private const val MAX_THEME_STORE_JSON_BYTES = 256L * 1024L
 private const val MAX_THEME_STORE_ASSET_BYTES = 256L * 1024L * 1024L
@@ -28,6 +28,7 @@ const val THEME_STORE_FILE_EXTENSION = "kstheme"
 enum class ThemeStoreImageSlot(
     val id: String,
     val uriKey: String,
+    val videoUriKey: String?,
     val cropLeftKey: String,
     val cropTopKey: String,
     val cropRightKey: String,
@@ -36,6 +37,7 @@ enum class ThemeStoreImageSlot(
     Lkm(
         id = "lkm",
         uriKey = "home_lkm_card_wallpaper_uri",
+        videoUriKey = "home_lkm_card_wallpaper_video_uri",
         cropLeftKey = "home_lkm_card_wallpaper_crop_left",
         cropTopKey = "home_lkm_card_wallpaper_crop_top",
         cropRightKey = "home_lkm_card_wallpaper_crop_right",
@@ -44,6 +46,7 @@ enum class ThemeStoreImageSlot(
     Superuser(
         id = "superuser",
         uriKey = "home_superuser_card_wallpaper_uri",
+        videoUriKey = null,
         cropLeftKey = "home_superuser_card_wallpaper_crop_left",
         cropTopKey = "home_superuser_card_wallpaper_crop_top",
         cropRightKey = "home_superuser_card_wallpaper_crop_right",
@@ -52,6 +55,7 @@ enum class ThemeStoreImageSlot(
     Module(
         id = "module",
         uriKey = "home_module_card_wallpaper_uri",
+        videoUriKey = null,
         cropLeftKey = "home_module_card_wallpaper_crop_left",
         cropTopKey = "home_module_card_wallpaper_crop_top",
         cropRightKey = "home_module_card_wallpaper_crop_right",
@@ -60,6 +64,7 @@ enum class ThemeStoreImageSlot(
     StatusMonitor(
         id = "status_monitor",
         uriKey = "home_status_monitor_wallpaper_uri",
+        videoUriKey = null,
         cropLeftKey = "home_status_monitor_wallpaper_crop_left",
         cropTopKey = "home_status_monitor_wallpaper_crop_top",
         cropRightKey = "home_status_monitor_wallpaper_crop_right",
@@ -68,6 +73,7 @@ enum class ThemeStoreImageSlot(
     SystemInfo(
         id = "system_info",
         uriKey = "home_system_info_wallpaper_uri",
+        videoUriKey = null,
         cropLeftKey = "home_system_info_wallpaper_crop_left",
         cropTopKey = "home_system_info_wallpaper_crop_top",
         cropRightKey = "home_system_info_wallpaper_crop_right",
@@ -77,21 +83,32 @@ enum class ThemeStoreImageSlot(
 
 data class ThemeStoreImageState(
     val uriString: String?,
+    val videoUriString: String?,
     val crop: CustomWallpaperCrop,
 ) {
     val hasSelected: Boolean
+        get() = hasImageSelected || hasVideoSelected
+    val hasImageSelected: Boolean
         get() = !uriString.isNullOrBlank()
+    val hasVideoSelected: Boolean
+        get() = !videoUriString.isNullOrBlank()
 }
 
 data class ThemeStoreWallpaperState(
     val uriString: String?,
+    val videoUriString: String?,
+    val videoDurationSeconds: Int,
     val opacity: Float,
     val crop: CustomWallpaperCrop,
     val passthroughEnabled: Boolean,
     val passthroughOpacity: Float,
 ) {
     val hasSelected: Boolean
+        get() = hasImageSelected || hasVideoSelected
+    val hasImageSelected: Boolean
         get() = !uriString.isNullOrBlank()
+    val hasVideoSelected: Boolean
+        get() = !videoUriString.isNullOrBlank()
 }
 
 data class ThemeStoreSummary(
@@ -100,21 +117,25 @@ data class ThemeStoreSummary(
     val moduleCard: ThemeStoreImageState,
     val statusMonitorCard: ThemeStoreImageState,
     val systemInfoCard: ThemeStoreImageState,
+    val navigationIcons: CustomNavigationIconSet,
+    val pageBackgrounds: CustomPageBackgroundSet,
     val wallpaper: ThemeStoreWallpaperState,
     val startupSoundUri: String?,
     val startupAnimationUri: String?,
 ) {
     val selectedCount: Int
-        get() = listOf(
-            lkmCard.hasSelected,
-            superuserCard.hasSelected,
-            moduleCard.hasSelected,
-            statusMonitorCard.hasSelected,
-            systemInfoCard.hasSelected,
-            wallpaper.hasSelected,
-            !startupSoundUri.isNullOrBlank(),
-            !startupAnimationUri.isNullOrBlank(),
-        ).count { it }
+        get() = navigationIcons.selectedCount +
+            CustomPageBackgroundTarget.entries.count { pageBackgrounds[it].hasMedia } +
+            listOf(
+                lkmCard.hasSelected,
+                superuserCard.hasSelected,
+                moduleCard.hasSelected,
+                statusMonitorCard.hasSelected,
+                systemInfoCard.hasSelected,
+                wallpaper.hasSelected,
+                !startupSoundUri.isNullOrBlank(),
+                !startupAnimationUri.isNullOrBlank(),
+            ).count { it }
 }
 
 data class ThemeStorePackageResult(
@@ -131,8 +152,17 @@ fun readThemeStoreSummary(context: Context): ThemeStoreSummary {
         moduleCard = prefs.readImageSlot(ThemeStoreImageSlot.Module),
         statusMonitorCard = prefs.readImageSlot(ThemeStoreImageSlot.StatusMonitor),
         systemInfoCard = prefs.readImageSlot(ThemeStoreImageSlot.SystemInfo),
+        navigationIcons = prefs.readCustomNavigationIconSet(),
+        pageBackgrounds = prefs.readCustomPageBackgroundSet(),
         wallpaper = ThemeStoreWallpaperState(
             uriString = prefs.getString(CUSTOM_WALLPAPER_URI_KEY, null),
+            videoUriString = prefs.getString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, null),
+            videoDurationSeconds = sanitizeCustomVideoBackgroundDurationSeconds(
+                prefs.getInt(
+                    CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY,
+                    DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS,
+                )
+            ),
             opacity = sanitizeCustomWallpaperOpacity(
                 prefs.getFloat(CUSTOM_WALLPAPER_OPACITY_KEY, DEFAULT_CUSTOM_WALLPAPER_OPACITY)
             ),
@@ -153,17 +183,43 @@ fun readThemeStoreSummary(context: Context): ThemeStoreSummary {
 fun setThemeStoreImageSlot(context: Context, slot: ThemeStoreImageSlot, uriString: String?) {
     val prefs = themeStorePrefs(context)
     val previous = prefs.getString(slot.uriKey, null)
+    val previousVideo = slot.videoUriKey?.let { prefs.getString(it, null) }
     prefs.edit(commit = true) {
         if (uriString.isNullOrBlank()) {
             remove(slot.uriKey)
+            slot.videoUriKey?.let(::remove)
             removeImageSlotCrop(slot)
         } else {
             putString(slot.uriKey, uriString)
+            slot.videoUriKey?.let(::remove)
             putImageSlotCrop(slot, DEFAULT_CUSTOM_WALLPAPER_CROP)
         }
     }
     if (previous != uriString) {
         releaseCustomImageReference(context, previous)
+    }
+    releasePersistableVideoBackgroundReadPermission(context, previousVideo)
+}
+
+fun setThemeStoreImageSlotVideo(context: Context, slot: ThemeStoreImageSlot, uriString: String?) {
+    val videoUriKey = slot.videoUriKey ?: return
+    val prefs = themeStorePrefs(context)
+    val previous = prefs.getString(slot.uriKey, null)
+    val previousVideo = prefs.getString(videoUriKey, null)
+    prefs.edit(commit = true) {
+        if (uriString.isNullOrBlank()) {
+            remove(videoUriKey)
+        } else {
+            remove(slot.uriKey)
+            putImageSlotCrop(slot, DEFAULT_CUSTOM_WALLPAPER_CROP)
+            putString(videoUriKey, uriString)
+        }
+    }
+    if (!uriString.isNullOrBlank()) {
+        releaseCustomImageReference(context, previous)
+    }
+    if (previousVideo != uriString) {
+        releasePersistableVideoBackgroundReadPermission(context, previousVideo)
     }
 }
 
@@ -183,12 +239,14 @@ fun setThemeStoreWallpaper(
 ) {
     val prefs = themeStorePrefs(context)
     val previous = prefs.getString(CUSTOM_WALLPAPER_URI_KEY, null)
+    val previousVideo = prefs.getString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, null)
     prefs.edit(commit = true) {
         if (uriString.isNullOrBlank()) {
             remove(CUSTOM_WALLPAPER_URI_KEY)
             removeCustomWallpaperCrop()
         } else {
             putString(CUSTOM_WALLPAPER_URI_KEY, uriString)
+            remove(CUSTOM_VIDEO_BACKGROUND_URI_KEY)
             putCustomWallpaperCrop(crop)
         }
         putFloat(CUSTOM_WALLPAPER_OPACITY_KEY, sanitizeCustomWallpaperOpacity(opacity))
@@ -201,11 +259,63 @@ fun setThemeStoreWallpaper(
     if (previous != uriString) {
         releaseCustomImageReference(context, previous)
     }
+    if (!uriString.isNullOrBlank()) {
+        releasePersistableVideoBackgroundReadPermission(context, previousVideo)
+    }
 }
 
 fun setThemeStoreWallpaperCrop(context: Context, crop: CustomWallpaperCrop) {
     themeStorePrefs(context).edit(commit = true) {
         putCustomWallpaperCrop(crop)
+    }
+}
+
+fun setThemeStoreVideoBackground(
+    context: Context,
+    uriString: String?,
+    durationSeconds: Int? = null,
+    opacity: Float = DEFAULT_CUSTOM_WALLPAPER_OPACITY,
+    passthroughEnabled: Boolean = false,
+    passthroughOpacity: Float = DEFAULT_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY,
+) {
+    val prefs = themeStorePrefs(context)
+    val previousVideo = prefs.getString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, null)
+    val previousWallpaper = prefs.getString(CUSTOM_WALLPAPER_URI_KEY, null)
+    prefs.edit(commit = true) {
+        if (uriString.isNullOrBlank()) {
+            remove(CUSTOM_VIDEO_BACKGROUND_URI_KEY)
+        } else {
+            putString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, uriString)
+            remove(CUSTOM_WALLPAPER_URI_KEY)
+            removeCustomWallpaperCrop()
+        }
+        if (durationSeconds != null) {
+            putInt(
+                CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY,
+                sanitizeCustomVideoBackgroundDurationSeconds(durationSeconds),
+            )
+        }
+        putFloat(CUSTOM_WALLPAPER_OPACITY_KEY, sanitizeCustomWallpaperOpacity(opacity))
+        putBoolean(CUSTOM_WALLPAPER_PASSTHROUGH_ENABLED_KEY, passthroughEnabled)
+        putFloat(
+            CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY_KEY,
+            sanitizeCustomWallpaperPassthroughOpacity(passthroughOpacity),
+        )
+    }
+    if (previousVideo != uriString) {
+        releasePersistableVideoBackgroundReadPermission(context, previousVideo)
+    }
+    if (!uriString.isNullOrBlank()) {
+        releaseCustomImageReference(context, previousWallpaper)
+    }
+}
+
+fun setThemeStoreVideoBackgroundDurationSeconds(context: Context, seconds: Int) {
+    themeStorePrefs(context).edit {
+        putInt(
+            CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY,
+            sanitizeCustomVideoBackgroundDurationSeconds(seconds),
+        )
     }
 }
 
@@ -261,7 +371,34 @@ fun exportThemeStorePackage(context: Context, destination: Uri): ThemeStorePacka
                         assetId = "card_${slot.id}",
                         warnings = warnings,
                     )
+                    val videoAsset = zip.writeUriAsset(
+                        context = appContext,
+                        uriString = state.videoUriString,
+                        assetId = "card_${slot.id}_video",
+                        warnings = warnings,
+                    )
                     cardsJson.put(
+                        slot.id,
+                        JSONObject()
+                            .put("asset", asset?.toJson())
+                            .put("uri", state.uriString)
+                            .put("videoAsset", videoAsset?.toJson())
+                            .put("videoUri", state.videoUriString)
+                            .put("crop", state.crop.toJson()),
+                    )
+                }
+                config.put("cards", cardsJson)
+
+                val navigationIconsJson = JSONObject()
+                CustomNavigationIconSlot.entries.forEach { slot ->
+                    val state = prefs.readCustomNavigationIconState(slot)
+                    val asset = zip.writeUriAsset(
+                        context = appContext,
+                        uriString = state.uriString,
+                        assetId = "navigation_icon_${slot.id}",
+                        warnings = warnings,
+                    )
+                    navigationIconsJson.put(
                         slot.id,
                         JSONObject()
                             .put("asset", asset?.toJson())
@@ -269,10 +406,47 @@ fun exportThemeStorePackage(context: Context, destination: Uri): ThemeStorePacka
                             .put("crop", state.crop.toJson()),
                     )
                 }
-                config.put("cards", cardsJson)
+                config.put("navigationIcons", navigationIconsJson)
+
+                val pageBackgroundsJson = JSONObject()
+                val pageBackgrounds = prefs.readCustomPageBackgroundSet()
+                CustomPageBackgroundTarget.entries.forEach { target ->
+                    val state = pageBackgrounds[target]
+                    val asset = zip.writeUriAsset(
+                        context = appContext,
+                        uriString = state.wallpaperUriString,
+                        assetId = "page_background_${target.id}",
+                        warnings = warnings,
+                    )
+                    val videoAsset = zip.writeUriAsset(
+                        context = appContext,
+                        uriString = state.videoUriString,
+                        assetId = "page_background_${target.id}_video",
+                        warnings = warnings,
+                    )
+                    pageBackgroundsJson.put(
+                        target.id,
+                        JSONObject()
+                            .put("asset", asset?.toJson())
+                            .put("uri", state.wallpaperUriString)
+                            .put("videoAsset", videoAsset?.toJson())
+                            .put("videoUri", state.videoUriString)
+                            .put("videoDurationSeconds", state.videoDurationSeconds)
+                            .put("opacity", state.opacity)
+                            .put("crop", state.crop.toJson()),
+                    )
+                }
+                config.put("pageBackgrounds", pageBackgroundsJson)
 
                 val wallpaperState = ThemeStoreWallpaperState(
                     uriString = prefs.getString(CUSTOM_WALLPAPER_URI_KEY, null),
+                    videoUriString = prefs.getString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, null),
+                    videoDurationSeconds = sanitizeCustomVideoBackgroundDurationSeconds(
+                        prefs.getInt(
+                            CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY,
+                            DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS,
+                        )
+                    ),
                     opacity = sanitizeCustomWallpaperOpacity(
                         prefs.getFloat(CUSTOM_WALLPAPER_OPACITY_KEY, DEFAULT_CUSTOM_WALLPAPER_OPACITY)
                     ),
@@ -291,11 +465,20 @@ fun exportThemeStorePackage(context: Context, destination: Uri): ThemeStorePacka
                     assetId = "custom_wallpaper",
                     warnings = warnings,
                 )
+                val videoBackgroundAsset = zip.writeUriAsset(
+                    context = appContext,
+                    uriString = wallpaperState.videoUriString,
+                    assetId = "custom_video_background",
+                    warnings = warnings,
+                )
                 config.put(
                     "wallpaper",
                     JSONObject()
                         .put("asset", wallpaperAsset?.toJson())
                         .put("uri", wallpaperState.uriString)
+                        .put("videoAsset", videoBackgroundAsset?.toJson())
+                        .put("videoUri", wallpaperState.videoUriString)
+                        .put("videoDurationSeconds", wallpaperState.videoDurationSeconds)
                         .put("opacity", wallpaperState.opacity)
                         .put("crop", wallpaperState.crop.toJson())
                         .put("passthroughEnabled", wallpaperState.passthroughEnabled)
@@ -367,7 +550,11 @@ fun importThemeStorePackage(context: Context, source: Uri): ThemeStorePackageRes
             val stagingAssetsDir = File(nextStagingDir, "assets").apply { mkdirs() }
             val targetAssetsDir = File(targetDir, "assets")
             val cardsJson = config.optJSONObject("cards") ?: JSONObject()
-            val pendingCards = mutableMapOf<ThemeStoreImageSlot, Pair<String?, CustomWallpaperCrop>>()
+            val pendingCards = mutableMapOf<ThemeStoreImageSlot, ThemeStoreImageState>()
+            val navigationIconsJson = config.optJSONObject("navigationIcons") ?: JSONObject()
+            val pendingNavigationIcons = mutableMapOf<CustomNavigationIconSlot, Pair<String?, CustomWallpaperCrop>>()
+            val pageBackgroundsJson = config.optJSONObject("pageBackgrounds") ?: JSONObject()
+            val pendingPageBackgrounds = mutableMapOf<CustomPageBackgroundTarget, CustomBackgroundState>()
             var pendingWallpaper: ThemeStoreWallpaperState? = null
             var hasStartupSound = false
             var pendingStartupSoundUri: String? = null
@@ -379,15 +566,91 @@ fun importThemeStorePackage(context: Context, source: Uri): ThemeStorePackageRes
                 if (slotJson != null) {
                     val importedUri = importAssetUri(slotJson, tempAssetsDir, stagingAssetsDir, targetAssetsDir)
                         ?: slotJson.optString("uri").takeIf { it.isNotBlank() }
-                    pendingCards[slot] = importedUri to slotJson.optCrop("crop", DEFAULT_CUSTOM_WALLPAPER_CROP)
+                    val importedVideoUri = if (slot.videoUriKey != null) {
+                        importAssetUri(
+                            assetOwnerJson = slotJson,
+                            tempAssetsDir = tempAssetsDir,
+                            stagingAssetsDir = stagingAssetsDir,
+                            targetAssetsDir = targetAssetsDir,
+                            assetKey = "videoAsset",
+                            uriKey = "videoUri",
+                        )
+                    } else {
+                        null
+                    }
+                    pendingCards[slot] = ThemeStoreImageState(
+                        uriString = importedUri.takeUnless { !importedVideoUri.isNullOrBlank() },
+                        videoUriString = importedVideoUri,
+                        crop = slotJson.optCrop("crop", DEFAULT_CUSTOM_WALLPAPER_CROP),
+                    )
+                }
+            }
+
+            CustomNavigationIconSlot.entries.forEach { slot ->
+                val slotJson = navigationIconsJson.optJSONObject(slot.id)
+                if (slotJson != null) {
+                    val importedUri = importAssetUri(slotJson, tempAssetsDir, stagingAssetsDir, targetAssetsDir)
+                        ?: slotJson.optString("uri").takeIf { it.isNotBlank() }
+                    pendingNavigationIcons[slot] = importedUri to slotJson.optCrop(
+                        "crop",
+                        DEFAULT_CUSTOM_NAVIGATION_ICON_CROP,
+                    )
+                }
+            }
+
+            CustomPageBackgroundTarget.entries.forEach { target ->
+                val targetJson = pageBackgroundsJson.optJSONObject(target.id)
+                if (targetJson != null) {
+                    val importedUri = importAssetUri(targetJson, tempAssetsDir, stagingAssetsDir, targetAssetsDir)
+                        ?: targetJson.optString("uri").takeIf { it.isNotBlank() }
+                    val importedVideoUri = importAssetUri(
+                        assetOwnerJson = targetJson,
+                        tempAssetsDir = tempAssetsDir,
+                        stagingAssetsDir = stagingAssetsDir,
+                        targetAssetsDir = targetAssetsDir,
+                        assetKey = "videoAsset",
+                        uriKey = "videoUri",
+                    )
+                    pendingPageBackgrounds[target] = CustomBackgroundState(
+                        wallpaperUriString = importedUri.takeUnless { !importedVideoUri.isNullOrBlank() },
+                        videoUriString = importedVideoUri,
+                        opacity = sanitizeCustomWallpaperOpacity(
+                            targetJson.optDouble(
+                                "opacity",
+                                DEFAULT_CUSTOM_WALLPAPER_OPACITY.toDouble(),
+                            ).toFloat()
+                        ),
+                        crop = targetJson.optCrop("crop", DEFAULT_CUSTOM_WALLPAPER_CROP),
+                        videoDurationSeconds = sanitizeCustomVideoBackgroundDurationSeconds(
+                            targetJson.optInt(
+                                "videoDurationSeconds",
+                                DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS,
+                            )
+                        ),
+                    )
                 }
             }
 
             config.optJSONObject("wallpaper")?.let { wallpaperJson ->
                 val importedUri = importAssetUri(wallpaperJson, tempAssetsDir, stagingAssetsDir, targetAssetsDir)
                     ?: wallpaperJson.optString("uri").takeIf { it.isNotBlank() }
+                val importedVideoUri = importAssetUri(
+                    assetOwnerJson = wallpaperJson,
+                    tempAssetsDir = tempAssetsDir,
+                    stagingAssetsDir = stagingAssetsDir,
+                    targetAssetsDir = targetAssetsDir,
+                    assetKey = "videoAsset",
+                    uriKey = "videoUri",
+                )
                 pendingWallpaper = ThemeStoreWallpaperState(
                     uriString = importedUri,
+                    videoUriString = importedVideoUri,
+                    videoDurationSeconds = sanitizeCustomVideoBackgroundDurationSeconds(
+                        wallpaperJson.optInt(
+                            "videoDurationSeconds",
+                            DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS,
+                        )
+                    ),
                     opacity = sanitizeCustomWallpaperOpacity(
                         wallpaperJson.optDouble(
                             "opacity",
@@ -422,15 +685,46 @@ fun importThemeStorePackage(context: Context, source: Uri): ThemeStorePackageRes
 
             val prefs = themeStorePrefs(appContext)
             pendingCards.forEach { (slot, pending) ->
-                val (importedUri, crop) = pending
+                val importedUri = pending.uriString.takeUnless { pending.hasVideoSelected }
+                val importedVideoUri = pending.videoUriString.takeIf { slot.videoUriKey != null }
                 val previous = prefs.getString(slot.uriKey, null)
+                val previousVideo = slot.videoUriKey?.let { prefs.getString(it, null) }
                 prefs.edit(commit = true) {
                     if (importedUri.isNullOrBlank()) {
                         remove(slot.uriKey)
                         removeImageSlotCrop(slot)
                     } else {
                         putString(slot.uriKey, importedUri)
-                        putImageSlotCrop(slot, crop)
+                        putImageSlotCrop(slot, pending.crop)
+                    }
+                    slot.videoUriKey?.let { videoUriKey ->
+                        if (importedVideoUri.isNullOrBlank()) {
+                            remove(videoUriKey)
+                        } else {
+                            remove(slot.uriKey)
+                            putImageSlotCrop(slot, pending.crop)
+                            putString(videoUriKey, importedVideoUri)
+                        }
+                    }
+                }
+                if (previous != importedUri) {
+                    releaseCustomImageReference(appContext, previous)
+                }
+                if (previousVideo != importedVideoUri) {
+                    releasePersistableVideoBackgroundReadPermission(appContext, previousVideo)
+                }
+            }
+
+            pendingNavigationIcons.forEach { (slot, pending) ->
+                val (importedUri, crop) = pending
+                val previous = prefs.getString(slot.uriKey, null)
+                prefs.edit(commit = true) {
+                    if (importedUri.isNullOrBlank()) {
+                        remove(slot.uriKey)
+                        removeCustomNavigationIconCrop(slot)
+                    } else {
+                        putString(slot.uriKey, importedUri)
+                        putCustomNavigationIconCrop(slot, crop)
                     }
                 }
                 if (previous != importedUri) {
@@ -438,22 +732,37 @@ fun importThemeStorePackage(context: Context, source: Uri): ThemeStorePackageRes
                 }
             }
 
+            pendingPageBackgrounds.forEach { (target, pending) ->
+                applyThemeStorePageBackground(appContext, target, pending)
+            }
+
             pendingWallpaper?.let { wallpaper ->
                 val previous = prefs.getString(CUSTOM_WALLPAPER_URI_KEY, null)
+                val previousVideo = prefs.getString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, null)
+                val nextWallpaperUri = wallpaper.uriString.takeUnless { wallpaper.videoUriString != null }
                 prefs.edit(commit = true) {
-                    if (wallpaper.uriString.isNullOrBlank()) {
+                    if (nextWallpaperUri.isNullOrBlank()) {
                         remove(CUSTOM_WALLPAPER_URI_KEY)
                         removeCustomWallpaperCrop()
                     } else {
-                        putString(CUSTOM_WALLPAPER_URI_KEY, wallpaper.uriString)
+                        putString(CUSTOM_WALLPAPER_URI_KEY, nextWallpaperUri)
                         putCustomWallpaperCrop(wallpaper.crop)
                     }
+                    if (wallpaper.videoUriString.isNullOrBlank()) {
+                        remove(CUSTOM_VIDEO_BACKGROUND_URI_KEY)
+                    } else {
+                        putString(CUSTOM_VIDEO_BACKGROUND_URI_KEY, wallpaper.videoUriString)
+                    }
+                    putInt(CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS_KEY, wallpaper.videoDurationSeconds)
                     putFloat(CUSTOM_WALLPAPER_OPACITY_KEY, wallpaper.opacity)
                     putBoolean(CUSTOM_WALLPAPER_PASSTHROUGH_ENABLED_KEY, wallpaper.passthroughEnabled)
                     putFloat(CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY_KEY, wallpaper.passthroughOpacity)
                 }
-                if (previous != wallpaper.uriString) {
+                if (previous != nextWallpaperUri) {
                     releaseCustomImageReference(appContext, previous)
+                }
+                if (previousVideo != wallpaper.videoUriString) {
+                    releasePersistableVideoBackgroundReadPermission(appContext, previousVideo)
                 }
             }
 
@@ -479,9 +788,28 @@ private fun themeStorePrefs(context: Context): SharedPreferences {
     return context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 }
 
+private fun applyThemeStorePageBackground(
+    context: Context,
+    target: CustomPageBackgroundTarget,
+    state: CustomBackgroundState,
+) {
+    when {
+        state.hasVideo -> setCustomPageBackgroundVideo(context, target, state.videoUriString)
+        state.hasWallpaper -> setCustomPageBackgroundWallpaper(context, target, state.wallpaperUriString)
+        else -> {
+            clearCustomPageBackground(context, target)
+            return
+        }
+    }
+    setCustomPageBackgroundOpacity(context, target, state.opacity)
+    setCustomPageBackgroundCrop(context, target, state.crop)
+    setCustomPageBackgroundVideoDurationSeconds(context, target, state.videoDurationSeconds)
+}
+
 private fun SharedPreferences.readImageSlot(slot: ThemeStoreImageSlot): ThemeStoreImageState {
     return ThemeStoreImageState(
         uriString = getString(slot.uriKey, null),
+        videoUriString = slot.videoUriKey?.let { getString(it, null) },
         crop = sanitizeCustomWallpaperCrop(
             CustomWallpaperCrop(
                 left = getFloat(slot.cropLeftKey, DEFAULT_CUSTOM_WALLPAPER_CROP.left),
@@ -555,7 +883,7 @@ private fun ZipOutputStream.writeUriAsset(
 ): ExportedThemeAsset? {
     if (uriString.isNullOrBlank()) return null
     val uri = Uri.parse(uriString)
-    val displayName = queryDisplayName(context, uri)
+    val displayName = queryDisplayName(context, uri) ?: uri.lastPathSegment
     val mimeType = runCatching { context.contentResolver.getType(uri) }.getOrNull()
     val extension = safeAssetExtension(displayName, mimeType)
     val path = "assets/$assetId$extension"
@@ -679,8 +1007,11 @@ private fun importAssetUri(
     tempAssetsDir: File,
     stagingAssetsDir: File,
     targetAssetsDir: File,
+    assetKey: String = "asset",
+    uriKey: String = "uri",
 ): String? {
-    val assetJson = assetOwnerJson.optJSONObject("asset") ?: return null
+    val assetJson = assetOwnerJson.optJSONObject(assetKey)
+        ?: return assetOwnerJson.optString(uriKey).takeIf { it.isNotBlank() }
     val path = assetJson.optString("path").takeIf { it.startsWith("assets/") } ?: return null
     val relativePath = path.removePrefix("assets/")
     val tempFile = safeAssetFile(tempAssetsDir, relativePath)
@@ -738,7 +1069,7 @@ private fun safeAssetExtension(displayName: String?, mimeType: String?): String 
     return when {
         mimeType?.startsWith("image/png") == true -> ".png"
         mimeType?.startsWith("image/webp") == true -> ".webp"
-        mimeType?.startsWith("image/gif") == true -> ".gif"
+        mimeType.equals(CUSTOM_STARTUP_ANIMATION_GIF_MIME_TYPE, ignoreCase = true) -> ".gif"
         mimeType?.startsWith("image/") == true -> ".jpg"
         mimeType?.startsWith("audio/mpeg") == true -> ".mp3"
         mimeType?.startsWith("audio/ogg") == true -> ".ogg"

@@ -14,6 +14,7 @@ const fn resetprop() -> ResetProp {
         persist_only: false,
         verbose: false,
         show_context: false,
+        rebuild: false,
     }
 }
 
@@ -109,7 +110,7 @@ pub fn disable_adb_root() -> Result<()> {
         info!("Restoring: resetprop --delete {prop}");
         let _ = rp.delete(prop);
         if let Ok(ctx) = sys_prop::get_context(prop) {
-            let _ = sys_prop::compact(Some(&ctx));
+            let _ = rp.rebuild(&ctx);
         }
     }
 
@@ -136,7 +137,22 @@ fn connect_to_device(port: u16) -> Result<ADBTcpDevice> {
     bail!("Failed to connect to ADB device after {MAX_RETRIES} attempts")
 }
 
-pub fn run(port: u16, package_name: &String, allow_shell: bool) -> Result<()> {
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+pub fn run(
+    port: u16,
+    package_name: &str,
+    manager_uid: Option<u32>,
+    allow_shell: bool,
+) -> Result<()> {
+    anyhow::ensure!(
+        package_name == crate::defs::DEFAULT_MANAGER_PACKAGE,
+        "refusing Magica for package {package_name}; this build only trusts {}",
+        crate::defs::DEFAULT_MANAGER_PACKAGE
+    );
+
     enable_adb_root(port)?;
 
     let mut device = connect_to_device(port)?;
@@ -148,10 +164,15 @@ pub fn run(port: u16, package_name: &String, allow_shell: bool) -> Result<()> {
     // 1. Load kernelsu.ko, enforce SELinux, run stage scripts
     // 2. Restore adb properties (disable adb root/tcp mode)
     let allow_shell_arg = if allow_shell { " --allow-shell" } else { "" };
+    let manager_uid_arg = manager_uid
+        .map(|uid| format!(" --manager-uid {uid}"))
+        .unwrap_or_default();
+    let self_path = self_path.to_string_lossy();
     let cmd = format!(
-        "{} late-load --post-magica --package-name {}{}",
-        self_path.display(),
-        package_name,
+        "{} late-load --post-magica --package-name {}{}{}",
+        shell_quote(&self_path),
+        shell_quote(package_name),
+        manager_uid_arg,
         allow_shell_arg
     );
     info!("Executing '{cmd}' via adb shell...");

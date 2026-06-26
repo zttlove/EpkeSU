@@ -39,6 +39,8 @@ object Natives {
     val version: Int
         external get
 
+    external fun refreshInfo()
+
     val isSafeMode: Boolean
         external get
 

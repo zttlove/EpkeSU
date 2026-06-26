@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
@@ -38,6 +37,7 @@ import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.component.AppIconImage
 import me.weishu.kernelsu.ui.component.alpha.AlphaCard
 import me.weishu.kernelsu.ui.component.alpha.AlphaColors
+import me.weishu.kernelsu.ui.component.alpha.AlphaShapes
 import me.weishu.kernelsu.ui.component.alpha.AlphaScreen
 import me.weishu.kernelsu.ui.component.alpha.alphaSp
 
@@ -102,7 +102,7 @@ private fun AlphaSuperUserSearch(
         modifier = Modifier
             .fillMaxWidth()
             .height(44.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(AlphaShapes.Control)
             .background(AlphaColors.Surface)
             .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -234,7 +234,7 @@ private fun AlphaGrantBadge(
         fontSize = alphaSp(9.5f, maxScale = 1.0f),
         fontWeight = FontWeight.Black,
         modifier = Modifier
-            .clip(RoundedCornerShape(5.dp))
+            .clip(AlphaShapes.Control)
             .background(if (active) AlphaColors.AccentSoft else Color(0xFFE1E1E1))
             .padding(horizontal = 6.dp, vertical = 2.dp),
         maxLines = 1,

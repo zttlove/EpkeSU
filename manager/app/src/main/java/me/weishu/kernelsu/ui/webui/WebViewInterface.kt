@@ -188,6 +188,20 @@ class WebViewInterface(private val state: WebUIState) {
         val moduleInfos = JSONArray(listModules())
         val currentModuleInfo = JSONObject()
         currentModuleInfo.put("moduleDir", modDir)
+        if (state.isBuiltinModule) {
+            currentModuleInfo.put("id", state.moduleId)
+            currentModuleInfo.put("name", state.moduleName)
+            currentModuleInfo.put("version", state.moduleVersion)
+            currentModuleInfo.put("versionCode", state.moduleVersionCode)
+            currentModuleInfo.put("author", "Hybrid Mount Developers")
+            currentModuleInfo.put("description", "Built-in Hybrid Mount Lite")
+            currentModuleInfo.put("enabled", true)
+            currentModuleInfo.put("update", false)
+            currentModuleInfo.put("remove", false)
+            currentModuleInfo.put("web", true)
+            currentModuleInfo.put("metamodule", true)
+            return currentModuleInfo.toString()
+        }
         val moduleId = File(modDir).name
         for (i in 0 until moduleInfos.length()) {
             val currentInfo = moduleInfos.getJSONObject(i)

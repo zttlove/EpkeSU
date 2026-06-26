@@ -3,11 +3,19 @@ package me.weishu.kernelsu.data.repository
 import me.weishu.kernelsu.ui.theme.ThemePreset
 import me.weishu.kernelsu.ui.theme.CustomThemePreset
 import me.weishu.kernelsu.ui.theme.ThemeSyncStrategy
+import me.weishu.kernelsu.ui.util.BuiltinMountStatus
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSet
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSlot
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundSet
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundTarget
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
+
+const val SHOW_VERSION_MISMATCH_WARNING_KEY = "show_version_mismatch_warning"
 
 interface SettingsRepository {
     var uiMode: String
     var checkModuleUpdate: Boolean
+    var showVersionMismatchWarning: Boolean
     var themeMode: Int
     var miuixMonet: Boolean
     var keyColor: Int
@@ -31,9 +39,27 @@ interface SettingsRepository {
     var customWallpaperCrop: CustomWallpaperCrop
     var customWallpaperPassthroughEnabled: Boolean
     var customWallpaperPassthroughOpacity: Float
+    var customVideoBackgroundUri: String?
+    var customVideoBackgroundDurationSeconds: Int
+    val customPageBackgrounds: CustomPageBackgroundSet
     var customStartupAnimationUri: String?
     var customStartupSoundUri: String?
     var customStartupSoundDurationSeconds: Int
+    var customStartupSoundVolume: Float
+    var customClickSoundUri: String?
+    var customClickSoundVolume: Float
+    var customBackgroundMusicUri: String?
+    var customBackgroundMusicVolume: Float
+    var deltaColorVariant: String
+    val customNavigationIcons: CustomNavigationIconSet
+    fun setCustomPageBackgroundWallpaper(target: CustomPageBackgroundTarget, uriString: String?)
+    fun setCustomPageBackgroundVideo(target: CustomPageBackgroundTarget, uriString: String?)
+    fun setCustomPageBackgroundOpacity(target: CustomPageBackgroundTarget, opacity: Float)
+    fun setCustomPageBackgroundCrop(target: CustomPageBackgroundTarget, crop: CustomWallpaperCrop)
+    fun setCustomPageBackgroundVideoDurationSeconds(target: CustomPageBackgroundTarget, seconds: Int)
+    fun clearCustomPageBackground(target: CustomPageBackgroundTarget)
+    fun setCustomNavigationIcon(slot: CustomNavigationIconSlot, uriString: String?)
+    fun setCustomNavigationIconCrop(slot: CustomNavigationIconSlot, crop: CustomWallpaperCrop)
 
     suspend fun getSuCompatStatus(): String
     suspend fun getSuCompatPersistValue(): Long?
@@ -64,6 +90,13 @@ interface SettingsRepository {
 
     fun isDefaultUmountModules(): Boolean
     fun setDefaultUmountModules(enabled: Boolean): Boolean
+
+    suspend fun getBuiltinMountStatus(): BuiltinMountStatus
+    fun setBuiltinMountEnabled(enabled: Boolean): Boolean
+    fun setBuiltinMountDefaultMode(mode: String): Boolean
+
+    suspend fun getEpkesuHideStatus(): Boolean
+    fun setEpkesuHideEnabled(enabled: Boolean): Boolean
 
     fun isLkmMode(): Boolean
 

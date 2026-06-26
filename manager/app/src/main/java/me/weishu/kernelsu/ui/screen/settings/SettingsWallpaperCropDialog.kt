@@ -67,10 +67,11 @@ fun SettingsWallpaperCropDialog(
     editorAspectRatio: Float = 9f / 16f,
     cropAspectRatio: Float? = null,
     defaultCrop: CustomWallpaperCrop = DEFAULT_CUSTOM_WALLPAPER_CROP,
+    previewBitmap: ImageBitmap? = null,
 ) {
     if (!show) return
 
-    val imageBitmap = rememberCustomImageBitmap(uriString)
+    val imageBitmap = previewBitmap ?: rememberCustomImageBitmap(uriString)
     var editCrop by remember(uriString) { mutableStateOf(initialEditableCrop(crop, defaultCrop)) }
     val dialogTitle = title ?: stringResource(R.string.settings_wallpaper_crop)
     val dialogEmptyText = emptyText ?: stringResource(R.string.settings_wallpaper_not_selected)

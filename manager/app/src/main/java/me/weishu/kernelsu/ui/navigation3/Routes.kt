@@ -54,6 +54,22 @@ sealed interface Route : NavKey, Parcelable {
 
     @Parcelize
     @Serializable
+    data object NavigationIcons : Route
+
+    @Parcelize
+    @Serializable
+    data object Backgrounds : Route
+
+    @Parcelize
+    @Serializable
+    data object SoundEffects : Route
+
+    @Parcelize
+    @Serializable
+    data object HomeCardWallpapers : Route
+
+    @Parcelize
+    @Serializable
     data object ThemeStore : Route
 
     @Parcelize

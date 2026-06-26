@@ -3,6 +3,8 @@ package me.weishu.kernelsu.ui.viewmodel
 import androidx.compose.runtime.Immutable
 import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.theme.AppSettings
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSet
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundSet
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
 
 @Immutable
@@ -21,6 +23,15 @@ data class MainActivityUiState(
     val customWallpaperCrop: CustomWallpaperCrop,
     val customWallpaperPassthroughEnabled: Boolean,
     val customWallpaperPassthroughOpacity: Float,
+    val customVideoBackgroundUri: String?,
+    val customVideoBackgroundDurationSeconds: Int,
+    val customPageBackgrounds: CustomPageBackgroundSet,
     val customStartupAnimationUri: String?,
     val customStartupSoundUri: String?,
+    val customClickSoundUri: String?,
+    val customClickSoundVolume: Float,
+    val customBackgroundMusicUri: String?,
+    val customBackgroundMusicVolume: Float,
+    val customNavigationIcons: CustomNavigationIconSet,
+    val deltaColorVariant: String,
 )

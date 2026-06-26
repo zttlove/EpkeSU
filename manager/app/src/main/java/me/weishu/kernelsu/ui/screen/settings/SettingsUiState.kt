@@ -4,11 +4,19 @@ import androidx.compose.runtime.Immutable
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import me.weishu.kernelsu.ui.theme.CustomThemePreset
+import me.weishu.kernelsu.ui.theme.DeltaColorVariant
 import me.weishu.kernelsu.ui.theme.ThemeAppearanceDefaults
 import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.theme.ThemePreset
 import me.weishu.kernelsu.ui.theme.ThemeSyncStrategy
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSet
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundSet
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundTarget
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
+import me.weishu.kernelsu.ui.util.BUILTIN_MOUNT_MODE_OVERLAY
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_AUDIO_VOLUME
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_BACKGROUND_MUSIC_VOLUME
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_STARTUP_SOUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY
@@ -18,6 +26,7 @@ import me.weishu.kernelsu.ui.util.LauncherIconOption
 data class SettingsUiState(
     val uiMode: String = UiMode.DEFAULT_VALUE,
     val checkModuleUpdate: Boolean = true,
+    val showVersionMismatchWarning: Boolean = true,
     val themeMode: Int = 0,
     val miuixMonet: Boolean = false,
     val keyColor: Int = 0,
@@ -41,9 +50,19 @@ data class SettingsUiState(
     val customWallpaperCrop: CustomWallpaperCrop = CustomWallpaperCrop(),
     val customWallpaperPassthroughEnabled: Boolean = false,
     val customWallpaperPassthroughOpacity: Float = DEFAULT_CUSTOM_WALLPAPER_PASSTHROUGH_OPACITY,
+    val customVideoBackgroundUri: String? = null,
+    val customVideoBackgroundDurationSeconds: Int = DEFAULT_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS,
+    val customPageBackgrounds: CustomPageBackgroundSet = CustomPageBackgroundSet(),
     val customStartupAnimationUri: String? = null,
     val customStartupSoundUri: String? = null,
     val customStartupSoundDurationSeconds: Int = DEFAULT_CUSTOM_STARTUP_SOUND_DURATION_SECONDS,
+    val customStartupSoundVolume: Float = DEFAULT_CUSTOM_AUDIO_VOLUME,
+    val customClickSoundUri: String? = null,
+    val customClickSoundVolume: Float = DEFAULT_CUSTOM_AUDIO_VOLUME,
+    val customBackgroundMusicUri: String? = null,
+    val customBackgroundMusicVolume: Float = DEFAULT_CUSTOM_BACKGROUND_MUSIC_VOLUME,
+    val customNavigationIcons: CustomNavigationIconSet = CustomNavigationIconSet(),
+    val deltaColorVariant: String = DeltaColorVariant.DEFAULT_VALUE,
 
     // Su Compat
     val suCompatStatus: String = "",
@@ -65,6 +84,15 @@ data class SettingsUiState(
     // Umount Modules
     val isDefaultUmountModules: Boolean = false,
 
+    // Built-in Hybrid Mount Lite
+    val isBuiltinMountEnabled: Boolean = false,
+    val builtinMountDefaultMode: String = BUILTIN_MOUNT_MODE_OVERLAY,
+    val isBuiltinMountWebUiAvailable: Boolean = false,
+    val builtinMountConflict: String? = null,
+
+    // EpkeSU Hide
+    val isEpkesuHideEnabled: Boolean = false,
+
     // ADB Root
     val adbRootStatus: String = "",
     val isAdbRootEnabled: Boolean = false,
@@ -83,10 +111,15 @@ data class SettingsUiState(
 @Immutable
 data class SettingsScreenActions(
     val onSetCheckModuleUpdate: (Boolean) -> Unit,
+    val onSetShowVersionMismatchWarning: (Boolean) -> Unit,
     val onOpenTheme: () -> Unit,
     val onOpenThemeStore: () -> Unit,
     val onSetUiModeIndex: (Int) -> Unit,
     val onOpenLauncherIcon: () -> Unit,
+    val onOpenNavigationIcons: () -> Unit,
+    val onOpenHomeCardWallpapers: () -> Unit,
+    val onOpenBackgrounds: () -> Unit,
+    val onOpenSoundEffects: () -> Unit,
     val onEditCustomManagerName: () -> Unit,
     val onSetCustomManagerName: (String) -> Unit,
     val onPickWallpaper: () -> Unit,
@@ -97,6 +130,16 @@ data class SettingsScreenActions(
     val onSetWallpaperCrop: (CustomWallpaperCrop) -> Unit,
     val onSetWallpaperPassthroughEnabled: (Boolean) -> Unit,
     val onSetWallpaperPassthroughOpacity: (Float) -> Unit,
+    val onPickVideoBackground: () -> Unit,
+    val onPreviewVideoBackground: () -> Unit,
+    val onClearVideoBackground: () -> Unit,
+    val onSetVideoBackgroundDurationSeconds: (Int) -> Unit,
+    val onSetPageBackgroundWallpaper: (CustomPageBackgroundTarget, String?) -> Unit,
+    val onSetPageBackgroundVideo: (CustomPageBackgroundTarget, String?) -> Unit,
+    val onSetPageBackgroundOpacity: (CustomPageBackgroundTarget, Float) -> Unit,
+    val onSetPageBackgroundCrop: (CustomPageBackgroundTarget, CustomWallpaperCrop) -> Unit,
+    val onSetPageBackgroundVideoDurationSeconds: (CustomPageBackgroundTarget, Int) -> Unit,
+    val onClearPageBackground: (CustomPageBackgroundTarget) -> Unit,
     val onSaveCustomThemePreset: (String) -> Unit,
     val onApplyCustomThemePreset: (String) -> Unit,
     val onRenameCustomThemePreset: (String, String) -> Unit,
@@ -106,10 +149,6 @@ data class SettingsScreenActions(
     val onPickStartupAnimation: () -> Unit,
     val onPreviewStartupAnimation: () -> Unit,
     val onClearStartupAnimation: () -> Unit,
-    val onPickStartupSound: () -> Unit,
-    val onPreviewStartupSound: () -> Unit,
-    val onClearStartupSound: () -> Unit,
-    val onSetStartupSoundDurationSeconds: (Int) -> Unit,
     val onOpenProfileTemplate: () -> Unit,
     val onSetSuCompatMode: (Int) -> Unit,
     val onSetKernelUmountEnabled: (Boolean) -> Unit,
@@ -118,7 +157,12 @@ data class SettingsScreenActions(
     val onSetAdbRootEnabled: (Boolean) -> Unit,
     val onSetAvcSpoofEnabled: (Boolean) -> Unit,
     val onSetDefaultUmountModules: (Boolean) -> Unit,
+    val onSetBuiltinMountEnabled: (Boolean) -> Unit,
+    val onSetBuiltinMountDefaultMode: (Int) -> Unit,
+    val onOpenBuiltinMountWebUi: () -> Unit,
+    val onSetEpkesuHideEnabled: (Boolean) -> Unit,
     val onSetEnableWebDebugging: (Boolean) -> Unit,
     val onSetAutoJailbreak: (Boolean) -> Unit,
+    val onSetDeltaColorVariant: (String) -> Unit,
     val onOpenAbout: () -> Unit,
 )

@@ -9,6 +9,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,21 +36,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Cottage
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.ImageSearch
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SettingsSuggest
 import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -89,6 +96,8 @@ import me.weishu.kernelsu.ui.LocalUiMode
 import me.weishu.kernelsu.ui.InterfaceStyle
 import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.component.StartupAnimationOverlay
+import me.weishu.kernelsu.ui.component.CustomVideoBackground
+import me.weishu.kernelsu.ui.component.rememberCustomVideoFrameBitmap
 import me.weishu.kernelsu.ui.component.rememberCustomImageBitmap
 import me.weishu.kernelsu.ui.component.skrootpro.SkrootproColors
 import me.weishu.kernelsu.ui.component.skrootpro.SkrootproScreen
@@ -96,9 +105,17 @@ import me.weishu.kernelsu.ui.component.skrootpro.skrootproSp
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.screen.settings.SettingsWallpaperCropDialog
 import me.weishu.kernelsu.ui.screen.settings.SettingsWallpaperPreviewDialog
+import me.weishu.kernelsu.ui.screen.settings.SettingsVideoBackgroundPreviewDialog
+import me.weishu.kernelsu.ui.util.CUSTOM_STARTUP_ANIMATION_MIME_TYPES
 import me.weishu.kernelsu.ui.util.CUSTOM_WALLPAPER_URI_KEY
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundTarget
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSlot
+import me.weishu.kernelsu.ui.util.CustomNavigationIconState
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
+import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_NAVIGATION_ICON_CROP
+import me.weishu.kernelsu.ui.util.MAX_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.MAX_CUSTOM_WALLPAPER_OPACITY
+import me.weishu.kernelsu.ui.util.MIN_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS
 import me.weishu.kernelsu.ui.util.MIN_CUSTOM_WALLPAPER_OPACITY
 import me.weishu.kernelsu.ui.util.StartupSoundPlayer
 import me.weishu.kernelsu.ui.util.THEME_STORE_FILE_EXTENSION
@@ -112,20 +129,26 @@ import me.weishu.kernelsu.ui.util.persistCustomImageReference
 import me.weishu.kernelsu.ui.util.readThemeStoreSummary
 import me.weishu.kernelsu.ui.util.setThemeStoreImageSlot
 import me.weishu.kernelsu.ui.util.setThemeStoreImageSlotCrop
+import me.weishu.kernelsu.ui.util.setThemeStoreImageSlotVideo
 import me.weishu.kernelsu.ui.util.setThemeStoreStartupAnimation
 import me.weishu.kernelsu.ui.util.setThemeStoreStartupSound
+import me.weishu.kernelsu.ui.util.setThemeStoreVideoBackground
+import me.weishu.kernelsu.ui.util.setThemeStoreVideoBackgroundDurationSeconds
 import me.weishu.kernelsu.ui.util.setThemeStoreWallpaper
 import me.weishu.kernelsu.ui.util.setThemeStoreWallpaperCrop
+import me.weishu.kernelsu.ui.util.setCustomNavigationIcon
+import me.weishu.kernelsu.ui.util.setCustomNavigationIconCrop
 import me.weishu.kernelsu.ui.util.takePersistableAudioReadPermission
 import me.weishu.kernelsu.ui.util.takePersistableImageReadPermission
 import me.weishu.kernelsu.ui.util.takePersistableStartupAnimationReadPermission
+import me.weishu.kernelsu.ui.util.takePersistableVideoBackgroundReadPermission
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar as MiuixTopAppBar
 import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
+import kotlin.math.roundToInt
 
 @Composable
 fun ThemeStoreScreen() {
@@ -136,6 +159,8 @@ fun ThemeStoreScreen() {
     var busy by rememberSaveable { mutableStateOf(false) }
     var cropTarget by remember { mutableStateOf<CropTarget?>(null) }
     var showWallpaperPreview by rememberSaveable { mutableStateOf(false) }
+    var showVideoBackgroundPreview by rememberSaveable { mutableStateOf(false) }
+    var showLkmCardVideoPreview by rememberSaveable { mutableStateOf(false) }
     var startupPreviewUri by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun refreshSummary() {
@@ -193,15 +218,59 @@ fun ThemeStoreScreen() {
         refreshSummary()
         cropTarget = target
     }
+    val lkmCardVideoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        takePersistableVideoBackgroundReadPermission(context, uri)
+        setThemeStoreImageSlotVideo(context, ThemeStoreImageSlot.Lkm, uri.toString())
+        refreshSummary()
+        cropTarget = CropTarget.Card(ThemeStoreImageSlot.Lkm)
+        showLkmCardVideoPreview = false
+    }
+    val navigationIconLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val target = cropTarget as? CropTarget.NavigationIcon ?: return@rememberLauncherForActivityResult
+        uri ?: return@rememberLauncherForActivityResult
+        val uriString = persistCustomImageReference(context, uri, target.slot.uriKey)
+            ?: uri.toString().also { takePersistableImageReadPermission(context, uri) }
+        setCustomNavigationIcon(context, target.slot, uriString)
+        refreshSummary()
+        cropTarget = target
+    }
     val wallpaperLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         val uriString = persistCustomImageReference(context, uri, CUSTOM_WALLPAPER_URI_KEY)
             ?: uri.toString().also { takePersistableImageReadPermission(context, uri) }
-        setThemeStoreWallpaper(context, uriString)
+        setThemeStoreWallpaper(
+            context = context,
+            uriString = uriString,
+            opacity = summary.wallpaper.opacity,
+            passthroughEnabled = summary.wallpaper.passthroughEnabled,
+            passthroughOpacity = summary.wallpaper.passthroughOpacity,
+        )
         refreshSummary()
         cropTarget = CropTarget.Wallpaper
+    }
+    val videoBackgroundLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        takePersistableVideoBackgroundReadPermission(context, uri)
+        setThemeStoreVideoBackground(
+            context = context,
+            uriString = uri.toString(),
+            durationSeconds = summary.wallpaper.videoDurationSeconds,
+            opacity = summary.wallpaper.opacity,
+            passthroughEnabled = summary.wallpaper.passthroughEnabled,
+            passthroughOpacity = summary.wallpaper.passthroughOpacity,
+        )
+        refreshSummary()
+        showWallpaperPreview = false
+        showVideoBackgroundPreview = true
     }
     val startupSoundLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -242,9 +311,32 @@ fun ThemeStoreScreen() {
             cropTarget = CropTarget.Card(slot)
             cardImageLauncher.launch(arrayOf("image/*"))
         },
+        onPickCardVideo = { slot ->
+            if (slot == ThemeStoreImageSlot.Lkm) {
+                cropTarget = null
+                lkmCardVideoLauncher.launch(arrayOf("video/*"))
+            }
+        },
+        onPreviewCardVideo = { slot ->
+            if (slot == ThemeStoreImageSlot.Lkm) {
+                showLkmCardVideoPreview = true
+            }
+        },
         onCropCard = { slot -> cropTarget = CropTarget.Card(slot) },
         onClearCard = { slot ->
             setThemeStoreImageSlot(context, slot, null)
+            refreshSummary()
+            if (slot == ThemeStoreImageSlot.Lkm) {
+                showLkmCardVideoPreview = false
+            }
+        },
+        onPickNavigationIcon = { slot ->
+            cropTarget = CropTarget.NavigationIcon(slot)
+            navigationIconLauncher.launch(arrayOf("image/*"))
+        },
+        onCropNavigationIcon = { slot -> cropTarget = CropTarget.NavigationIcon(slot) },
+        onClearNavigationIcon = { slot ->
+            setCustomNavigationIcon(context, slot, null)
             refreshSummary()
         },
         onPickWallpaper = {
@@ -258,18 +350,41 @@ fun ThemeStoreScreen() {
         },
         onClearWallpaper = {
             setThemeStoreWallpaper(context, null)
+            setThemeStoreVideoBackground(context, null)
             refreshSummary()
             showWallpaperPreview = false
+            showVideoBackgroundPreview = false
         },
         onSetWallpaperOpacity = { opacity ->
-            setThemeStoreWallpaper(
-                context = context,
-                uriString = summary.wallpaper.uriString,
-                opacity = opacity,
-                crop = summary.wallpaper.crop,
-                passthroughEnabled = summary.wallpaper.passthroughEnabled,
-                passthroughOpacity = summary.wallpaper.passthroughOpacity,
-            )
+            if (summary.wallpaper.hasVideoSelected) {
+                setThemeStoreVideoBackground(
+                    context = context,
+                    uriString = summary.wallpaper.videoUriString,
+                    durationSeconds = summary.wallpaper.videoDurationSeconds,
+                    opacity = opacity,
+                    passthroughEnabled = summary.wallpaper.passthroughEnabled,
+                    passthroughOpacity = summary.wallpaper.passthroughOpacity,
+                )
+            } else {
+                setThemeStoreWallpaper(
+                    context = context,
+                    uriString = summary.wallpaper.uriString,
+                    opacity = opacity,
+                    crop = summary.wallpaper.crop,
+                    passthroughEnabled = summary.wallpaper.passthroughEnabled,
+                    passthroughOpacity = summary.wallpaper.passthroughOpacity,
+                )
+            }
+            refreshSummary()
+        },
+        onPickVideoBackground = {
+            videoBackgroundLauncher.launch(arrayOf("video/*"))
+        },
+        onPreviewVideoBackground = {
+            showVideoBackgroundPreview = true
+        },
+        onSetVideoBackgroundDurationSeconds = { seconds ->
+            setThemeStoreVideoBackgroundDurationSeconds(context, seconds)
             refreshSummary()
         },
         onPickStartupSound = {
@@ -287,7 +402,7 @@ fun ThemeStoreScreen() {
             refreshSummary()
         },
         onPickStartupAnimation = {
-            startupAnimationLauncher.launch(arrayOf("image/*", "video/*"))
+            startupAnimationLauncher.launch(CUSTOM_STARTUP_ANIMATION_MIME_TYPES)
         },
         onPreviewStartupAnimation = {
             startupPreviewUri = summary.startupAnimationUri
@@ -324,19 +439,44 @@ fun ThemeStoreScreen() {
     when (target) {
         is CropTarget.Card -> {
             val cardState = summary.cardState(target.slot)
+            val videoPreviewBitmap = rememberCustomVideoFrameBitmap(cardState.videoUriString)
             SettingsWallpaperCropDialog(
                 show = cardState.hasSelected,
-                uriString = cardState.uriString,
+                uriString = cardState.uriString ?: cardState.videoUriString,
                 crop = cardState.crop,
                 onCropChange = {
                     setThemeStoreImageSlotCrop(context, target.slot, it)
                     refreshSummary()
                     cropTarget = null
+                    if (cardState.hasVideoSelected && target.slot == ThemeStoreImageSlot.Lkm) {
+                        showLkmCardVideoPreview = true
+                    }
                 },
                 onDismissRequest = { cropTarget = null },
                 title = stringResource(target.slot.cropTitleRes),
                 editorAspectRatio = target.slot.aspectRatio,
                 cropAspectRatio = target.slot.aspectRatio,
+                previewBitmap = videoPreviewBitmap,
+            )
+        }
+
+        is CropTarget.NavigationIcon -> {
+            val iconState = summary.navigationIcons[target.slot]
+            SettingsWallpaperCropDialog(
+                show = iconState.hasSelected,
+                uriString = iconState.uriString,
+                crop = iconState.crop,
+                onCropChange = {
+                    setCustomNavigationIconCrop(context, target.slot, it)
+                    refreshSummary()
+                    cropTarget = null
+                },
+                onDismissRequest = { cropTarget = null },
+                title = stringResource(target.slot.cropTitleRes),
+                emptyText = stringResource(R.string.settings_navigation_icon_not_selected),
+                editorAspectRatio = 1f,
+                cropAspectRatio = 1f,
+                defaultCrop = DEFAULT_CUSTOM_NAVIGATION_ICON_CROP,
             )
         }
 
@@ -366,6 +506,21 @@ fun ThemeStoreScreen() {
         passthroughEnabled = summary.wallpaper.passthroughEnabled,
         passthroughOpacity = summary.wallpaper.passthroughOpacity,
         onDismissRequest = { showWallpaperPreview = false },
+    )
+    SettingsVideoBackgroundPreviewDialog(
+        show = showVideoBackgroundPreview,
+        uriString = summary.wallpaper.videoUriString,
+        durationSeconds = summary.wallpaper.videoDurationSeconds,
+        opacity = summary.wallpaper.opacity,
+        passthroughEnabled = summary.wallpaper.passthroughEnabled,
+        passthroughOpacity = summary.wallpaper.passthroughOpacity,
+        onDismissRequest = { showVideoBackgroundPreview = false },
+    )
+    LkmCardVideoPreviewDialog(
+        show = showLkmCardVideoPreview,
+        uriString = summary.lkmCard.videoUriString,
+        crop = summary.lkmCard.crop,
+        onDismissRequest = { showLkmCardVideoPreview = false },
     )
 
     if (!startupPreviewUri.isNullOrBlank()) {
@@ -472,6 +627,10 @@ private fun ThemeStoreContent(
     actions: ThemeStoreActions,
     modifier: Modifier = Modifier,
 ) {
+    var cardsExpanded by rememberSaveable { mutableStateOf(true) }
+    var navigationExpanded by rememberSaveable { mutableStateOf(false) }
+    var mediaExpanded by rememberSaveable { mutableStateOf(true) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -480,69 +639,95 @@ private fun ThemeStoreContent(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         ThemeStoreHero(summary = summary, busy = busy, actions = actions)
-        ThemeStoreSectionTitle(stringResource(R.string.theme_store_cards))
-        ThemeStoreCardImageItem(
-            slot = ThemeStoreImageSlot.Lkm,
-            state = summary.lkmCard,
-            icon = Icons.Rounded.SettingsSuggest,
-            actions = actions,
-        )
-        ThemeStoreCardImageItem(
-            slot = ThemeStoreImageSlot.Superuser,
-            state = summary.superuserCard,
-            icon = Icons.Rounded.Security,
-            actions = actions,
-        )
-        ThemeStoreCardImageItem(
-            slot = ThemeStoreImageSlot.Module,
-            state = summary.moduleCard,
-            icon = Icons.Rounded.Extension,
-            actions = actions,
-        )
-        ThemeStoreCardImageItem(
-            slot = ThemeStoreImageSlot.StatusMonitor,
-            state = summary.statusMonitorCard,
-            icon = Icons.Rounded.CheckCircle,
-            actions = actions,
-        )
-        ThemeStoreCardImageItem(
-            slot = ThemeStoreImageSlot.SystemInfo,
-            state = summary.systemInfoCard,
-            icon = Icons.Rounded.SettingsSuggest,
-            actions = actions,
-        )
-        ThemeStoreSectionTitle(stringResource(R.string.theme_store_wallpaper_media))
-        ThemeStoreWallpaperItem(summary = summary, actions = actions)
-        ThemeStoreMediaItem(
-            title = stringResource(R.string.settings_startup_sound),
-            summary = stringResource(
-                if (summary.startupSoundUri.isNullOrBlank()) {
-                    R.string.settings_startup_sound_summary
-                } else {
-                    R.string.settings_startup_sound_selected_summary
-                }
-            ),
-            selected = !summary.startupSoundUri.isNullOrBlank(),
-            icon = Icons.AutoMirrored.Rounded.VolumeUp,
-            onPick = actions.onPickStartupSound,
-            onPreview = actions.onPreviewStartupSound,
-            onClear = actions.onClearStartupSound,
-        )
-        ThemeStoreMediaItem(
-            title = stringResource(R.string.settings_startup_animation),
-            summary = stringResource(
-                if (summary.startupAnimationUri.isNullOrBlank()) {
-                    R.string.settings_startup_animation_summary
-                } else {
-                    R.string.settings_startup_animation_selected_summary
-                }
-            ),
-            selected = !summary.startupAnimationUri.isNullOrBlank(),
-            icon = Icons.Rounded.PlayCircle,
-            onPick = actions.onPickStartupAnimation,
-            onPreview = actions.onPreviewStartupAnimation,
-            onClear = actions.onClearStartupAnimation,
-        )
+
+        ThemeStoreSection(
+            title = stringResource(R.string.theme_store_cards),
+            configured = summary.cardConfiguredCount,
+            total = ThemeStoreImageSlot.entries.size,
+            expanded = cardsExpanded,
+            onExpandedChange = { cardsExpanded = it },
+        ) {
+            ThemeStoreCardImageItem(
+                slot = ThemeStoreImageSlot.Lkm,
+                state = summary.lkmCard,
+                icon = Icons.Rounded.SettingsSuggest,
+                actions = actions,
+            )
+            ThemeStoreCardImageItem(
+                slot = ThemeStoreImageSlot.Superuser,
+                state = summary.superuserCard,
+                icon = Icons.Rounded.Security,
+                actions = actions,
+            )
+            ThemeStoreCardImageItem(
+                slot = ThemeStoreImageSlot.Module,
+                state = summary.moduleCard,
+                icon = Icons.Rounded.Extension,
+                actions = actions,
+            )
+            ThemeStoreCardImageItem(
+                slot = ThemeStoreImageSlot.StatusMonitor,
+                state = summary.statusMonitorCard,
+                icon = Icons.Rounded.CheckCircle,
+                actions = actions,
+            )
+            ThemeStoreCardImageItem(
+                slot = ThemeStoreImageSlot.SystemInfo,
+                state = summary.systemInfoCard,
+                icon = Icons.Rounded.SettingsSuggest,
+                actions = actions,
+            )
+        }
+
+        ThemeStoreSection(
+            title = stringResource(R.string.theme_store_navigation_icons),
+            configured = summary.navigationIconConfiguredCount,
+            total = themeStoreNavigationIconSlots.size,
+            expanded = navigationExpanded,
+            onExpandedChange = { navigationExpanded = it },
+        ) {
+            ThemeStoreNavigationIconGrid(summary = summary, actions = actions)
+        }
+
+        ThemeStoreSection(
+            title = stringResource(R.string.theme_store_wallpaper_media),
+            configured = summary.mediaConfiguredCount,
+            total = summary.mediaItemCount,
+            expanded = mediaExpanded,
+            onExpandedChange = { mediaExpanded = it },
+        ) {
+            ThemeStoreWallpaperItem(summary = summary, actions = actions)
+            ThemeStoreMediaItem(
+                title = stringResource(R.string.settings_startup_sound),
+                summary = stringResource(
+                    if (summary.startupSoundUri.isNullOrBlank()) {
+                        R.string.settings_startup_sound_summary
+                    } else {
+                        R.string.settings_startup_sound_selected_summary
+                    }
+                ),
+                selected = !summary.startupSoundUri.isNullOrBlank(),
+                icon = Icons.AutoMirrored.Rounded.VolumeUp,
+                onPick = actions.onPickStartupSound,
+                onPreview = actions.onPreviewStartupSound,
+                onClear = actions.onClearStartupSound,
+            )
+            ThemeStoreMediaItem(
+                title = stringResource(R.string.settings_startup_animation),
+                summary = stringResource(
+                    if (summary.startupAnimationUri.isNullOrBlank()) {
+                        R.string.settings_startup_animation_summary
+                    } else {
+                        R.string.settings_startup_animation_selected_summary
+                    }
+                ),
+                selected = !summary.startupAnimationUri.isNullOrBlank(),
+                icon = Icons.Rounded.PlayCircle,
+                onPick = actions.onPickStartupAnimation,
+                onPreview = actions.onPreviewStartupAnimation,
+                onClear = actions.onClearStartupAnimation,
+            )
+        }
         Spacer(modifier = Modifier.height(18.dp))
     }
 }
@@ -554,72 +739,150 @@ private fun ThemeStoreHero(
     actions: ThemeStoreActions,
 ) {
     ThemeStoreSurface {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.13f), CircleShape),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.13f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (busy) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.5.dp,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.Wallpaper,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                if (busy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Wallpaper,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
-                Column(modifier = Modifier.weight(1f)) {
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = stringResource(R.string.theme_store_title),
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = themeStoreTextColor(),
                     )
                     Text(
                         text = stringResource(R.string.theme_store_selected_count, summary.selectedCount),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = themeStoreMutedColor(),
                     )
+                    Text(
+                        text = stringResource(R.string.theme_store_summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = themeStoreMutedColor(),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
+                ThemeStoreHeroActions(
+                    busy = busy,
+                    onExport = actions.onExport,
+                    onImport = actions.onImport,
+                )
             }
-            Text(
-                text = stringResource(R.string.theme_store_summary),
-                style = MaterialTheme.typography.bodyMedium,
-                color = themeStoreMutedColor(),
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThemeStoreHeroActions(
+    busy: Boolean,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(
+            enabled = !busy,
+            onClick = onExport,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+        ) {
+            Icon(Icons.Rounded.SaveAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(stringResource(R.string.theme_store_export), maxLines = 1)
+        }
+        OutlinedButton(
+            enabled = !busy,
+            onClick = onImport,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+        ) {
+            Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(stringResource(R.string.theme_store_import), maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun ThemeStoreSection(
+    title: String,
+    configured: Int,
+    total: Int,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onExpandedChange(!expanded) }
+                .padding(start = 4.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = if (LocalInterfaceStyle.current == InterfaceStyle.Skrootpro.value) {
+                        SkrootproColors.Text
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    fontSize = if (LocalInterfaceStyle.current == InterfaceStyle.Skrootpro.value) {
+                        skrootproSp(13f, maxScale = 1f)
+                    } else {
+                        14.sp
+                    },
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = stringResource(R.string.theme_store_configured_count, configured, total),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = themeStoreMutedColor(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = title,
+                tint = if (LocalInterfaceStyle.current == InterfaceStyle.Skrootpro.value) {
+                    SkrootproColors.Muted
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    enabled = !busy,
-                    onClick = actions.onExport,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                ) {
-                    Icon(Icons.Rounded.SaveAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(stringResource(R.string.theme_store_export))
-                }
-                OutlinedButton(
-                    enabled = !busy,
-                    onClick = actions.onImport,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                ) {
-                    Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(stringResource(R.string.theme_store_import))
-                }
-            }
+        }
+        if (expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
         }
     }
 }
@@ -636,6 +899,7 @@ private fun ThemeStoreCardImageItem(
         maxSide = 900,
         crop = state.crop,
     )
+    val supportsVideo = slot == ThemeStoreImageSlot.Lkm
     ThemeStoreSurface {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -662,10 +926,10 @@ private fun ThemeStoreCardImageItem(
                     )
                     Text(
                         text = stringResource(
-                            if (state.hasSelected) {
-                                R.string.theme_store_item_selected
-                            } else {
-                                R.string.theme_store_item_empty
+                            when {
+                                state.hasVideoSelected -> R.string.settings_video_background_selected_summary
+                                state.hasSelected -> R.string.theme_store_item_selected
+                                else -> R.string.theme_store_item_empty
                             }
                         ),
                         style = MaterialTheme.typography.bodySmall,
@@ -681,36 +945,215 @@ private fun ThemeStoreCardImageItem(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                if (imageBitmap != null) {
-                    Image(
-                        modifier = Modifier.fillMaxSize(),
-                        bitmap = imageBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.38f))
-                    )
-                    Icon(
-                        imageVector = Icons.Rounded.CheckCircle,
-                        contentDescription = null,
-                        tint = Color.White,
-                    )
-                } else {
-                    Text(
-                        text = stringResource(R.string.settings_wallpaper_not_selected),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                when {
+                    state.hasVideoSelected -> {
+                        Icon(
+                            imageVector = Icons.Rounded.Videocam,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(12.dp),
+                            text = stringResource(R.string.home_lkm_video_wallpaper_pick),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        ThemeStoreSelectedBadge(modifier = Modifier.align(Alignment.TopEnd))
+                    }
+
+                    imageBitmap != null -> {
+                        Image(
+                            modifier = Modifier.fillMaxSize(),
+                            bitmap = imageBitmap,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                        )
+                        ThemeStoreSelectedBadge(modifier = Modifier.align(Alignment.TopEnd))
+                    }
+
+                    else -> {
+                        Text(
+                            text = stringResource(R.string.settings_wallpaper_not_selected),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
-            ThemeStoreActionRow(
-                selected = state.hasSelected,
-                onPick = { actions.onPickCard(slot) },
-                onCrop = { actions.onCropCard(slot) },
-                onClear = { actions.onClearCard(slot) },
+            if (supportsVideo) {
+                ThemeStoreActionFlow {
+                    ThemeStoreSmallButton(
+                        text = stringResource(R.string.settings_wallpaper),
+                        icon = Icons.Rounded.UploadFile,
+                        onClick = { actions.onPickCard(slot) },
+                    )
+                    ThemeStoreSmallButton(
+                        text = stringResource(R.string.settings_video_background),
+                        icon = Icons.Rounded.Videocam,
+                        onClick = { actions.onPickCardVideo(slot) },
+                    )
+                    if (state.hasSelected) {
+                        if (state.hasImageSelected || state.hasVideoSelected) {
+                            ThemeStoreSmallButton(
+                                text = stringResource(R.string.settings_wallpaper_crop),
+                                icon = Icons.Rounded.ImageSearch,
+                                onClick = { actions.onCropCard(slot) },
+                            )
+                        }
+                        if (state.hasVideoSelected) {
+                            ThemeStoreSmallButton(
+                                text = stringResource(R.string.settings_video_background_preview),
+                                icon = Icons.Rounded.PlayCircle,
+                                onClick = { actions.onPreviewCardVideo(slot) },
+                            )
+                        }
+                        ThemeStoreSmallButton(
+                            text = stringResource(R.string.close),
+                            icon = Icons.Rounded.Close,
+                            onClick = { actions.onClearCard(slot) },
+                        )
+                    }
+                }
+            } else {
+                ThemeStoreActionRow(
+                    selected = state.hasSelected,
+                    onPick = { actions.onPickCard(slot) },
+                    onCrop = { actions.onCropCard(slot) },
+                    onClear = { actions.onClearCard(slot) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeStoreNavigationIconGrid(
+    summary: ThemeStoreSummary,
+    actions: ThemeStoreActions,
+) {
+    ThemeStoreSurface {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            themeStoreNavigationIconSlots.chunked(2).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    rowItems.forEach { item ->
+                        ThemeStoreNavigationIconTile(
+                            modifier = Modifier.weight(1f),
+                            slot = item.slot,
+                            state = summary.navigationIcons[item.slot],
+                            icon = item.icon,
+                            actions = actions,
+                        )
+                    }
+                    if (rowItems.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeStoreNavigationIconTile(
+    slot: CustomNavigationIconSlot,
+    state: CustomNavigationIconState,
+    icon: ImageVector,
+    actions: ThemeStoreActions,
+    modifier: Modifier = Modifier,
+) {
+    val imageBitmap = rememberCustomImageBitmap(
+        uriString = state.uriString,
+        maxSide = 256,
+        crop = state.crop,
+    )
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (imageBitmap != null) {
+                Image(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(13.dp)),
+                    bitmap = imageBitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                )
+                ThemeStoreSelectedBadge(
+                    modifier = Modifier.align(Alignment.TopEnd),
+                    compact = true,
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = stringResource(slot.titleRes),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = themeStoreTextColor(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            Text(
+                text = stringResource(
+                    if (state.hasSelected) {
+                        R.string.theme_store_item_selected
+                    } else {
+                        R.string.theme_store_item_empty
+                    }
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = themeStoreMutedColor(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        ThemeStoreActionFlow(
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            ThemeStoreSmallButton(
+                text = stringResource(R.string.select_file),
+                icon = Icons.Rounded.UploadFile,
+                onClick = { actions.onPickNavigationIcon(slot) },
+            )
+            if (state.hasSelected) {
+                ThemeStoreSmallButton(
+                    text = stringResource(R.string.settings_navigation_icon_crop_action),
+                    icon = Icons.Rounded.ImageSearch,
+                    onClick = { actions.onCropNavigationIcon(slot) },
+                )
+                ThemeStoreSmallButton(
+                    text = stringResource(R.string.close),
+                    icon = Icons.Rounded.Close,
+                    onClick = { actions.onClearNavigationIcon(slot) },
+                )
+            }
         }
     }
 }
@@ -721,6 +1164,9 @@ private fun ThemeStoreWallpaperItem(
     actions: ThemeStoreActions,
 ) {
     var opacity by remember(summary.wallpaper.opacity) { mutableFloatStateOf(summary.wallpaper.opacity) }
+    var videoDuration by remember(summary.wallpaper.videoDurationSeconds) {
+        mutableFloatStateOf(summary.wallpaper.videoDurationSeconds.toFloat())
+    }
     val imageBitmap = rememberCustomImageBitmap(
         uriString = summary.wallpaper.uriString,
         maxSide = 900,
@@ -745,18 +1191,15 @@ private fun ThemeStoreWallpaperItem(
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(R.string.settings_wallpaper),
+                        text = stringResource(R.string.settings_background),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = themeStoreTextColor(),
                     )
                     Text(
-                        text = stringResource(
-                            if (summary.wallpaper.hasSelected) {
-                                R.string.settings_wallpaper_selected_summary
-                            } else {
-                                R.string.settings_wallpaper_summary
-                            }
+                        text = backgroundSummary(
+                            hasWallpaper = summary.wallpaper.hasImageSelected,
+                            hasVideo = summary.wallpaper.hasVideoSelected,
                         ),
                         style = MaterialTheme.typography.bodySmall,
                         color = themeStoreMutedColor(),
@@ -771,23 +1214,45 @@ private fun ThemeStoreWallpaperItem(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                if (imageBitmap != null) {
-                    Image(
-                        modifier = Modifier.fillMaxSize(),
-                        bitmap = imageBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 1f - opacity.coerceIn(0f, 1f)))
-                    )
-                } else {
-                    Text(
-                        text = stringResource(R.string.settings_wallpaper_not_selected),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                when {
+                    summary.wallpaper.hasVideoSelected -> {
+                        Icon(
+                            imageVector = Icons.Rounded.Videocam,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(12.dp),
+                            text = stringResource(R.string.settings_video_background_selected_summary),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        ThemeStoreSelectedBadge(modifier = Modifier.align(Alignment.TopEnd))
+                    }
+
+                    imageBitmap != null -> {
+                        Image(
+                            modifier = Modifier.fillMaxSize(),
+                            bitmap = imageBitmap,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 1f - opacity.coerceIn(0f, 1f)))
+                        )
+                        ThemeStoreSelectedBadge(modifier = Modifier.align(Alignment.TopEnd))
+                    }
+
+                    else -> {
+                        Text(
+                            text = stringResource(R.string.settings_background_not_selected),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             if (summary.wallpaper.hasSelected) {
@@ -800,23 +1265,58 @@ private fun ThemeStoreWallpaperItem(
                     valueRange = MIN_CUSTOM_WALLPAPER_OPACITY..MAX_CUSTOM_WALLPAPER_OPACITY,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (summary.wallpaper.hasVideoSelected) {
+                Text(
+                    text = stringResource(
+                        R.string.settings_video_background_duration_value,
+                        videoDuration.roundToInt(),
+                    ),
+                    color = themeStoreMutedColor(),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                androidx.compose.material3.Slider(
+                    value = videoDuration,
+                    onValueChange = {
+                        videoDuration = it
+                        actions.onSetVideoBackgroundDurationSeconds(it.roundToInt())
+                    },
+                    valueRange = MIN_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS.toFloat()..
+                        MAX_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS.toFloat(),
+                    steps = MAX_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS -
+                        MIN_CUSTOM_VIDEO_BACKGROUND_DURATION_SECONDS - 1,
+                )
+            }
+            ThemeStoreActionFlow {
                 ThemeStoreSmallButton(
-                    text = stringResource(R.string.select_file),
+                    text = stringResource(R.string.settings_wallpaper),
                     icon = Icons.Rounded.FileUpload,
                     onClick = actions.onPickWallpaper,
                 )
+                ThemeStoreSmallButton(
+                    text = stringResource(R.string.settings_video_background),
+                    icon = Icons.Rounded.Videocam,
+                    onClick = actions.onPickVideoBackground,
+                )
                 if (summary.wallpaper.hasSelected) {
-                    ThemeStoreSmallButton(
-                        text = stringResource(R.string.settings_wallpaper_crop),
-                        icon = Icons.Rounded.ImageSearch,
-                        onClick = actions.onCropWallpaper,
-                    )
-                    ThemeStoreSmallButton(
-                        text = stringResource(R.string.settings_wallpaper_preview),
-                        icon = Icons.Rounded.PlayCircle,
-                        onClick = actions.onPreviewWallpaper,
-                    )
+                    if (summary.wallpaper.hasImageSelected) {
+                        ThemeStoreSmallButton(
+                            text = stringResource(R.string.settings_wallpaper_crop),
+                            icon = Icons.Rounded.ImageSearch,
+                            onClick = actions.onCropWallpaper,
+                        )
+                        ThemeStoreSmallButton(
+                            text = stringResource(R.string.settings_wallpaper_preview),
+                            icon = Icons.Rounded.PlayCircle,
+                            onClick = actions.onPreviewWallpaper,
+                        )
+                    }
+                    if (summary.wallpaper.hasVideoSelected) {
+                        ThemeStoreSmallButton(
+                            text = stringResource(R.string.settings_video_background_preview),
+                            icon = Icons.Rounded.PlayCircle,
+                            onClick = actions.onPreviewVideoBackground,
+                        )
+                    }
                     ThemeStoreSmallButton(
                         text = stringResource(R.string.close),
                         icon = Icons.Rounded.Close,
@@ -871,7 +1371,7 @@ private fun ThemeStoreMediaItem(
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeStoreActionFlow {
                 ThemeStoreSmallButton(
                     text = stringResource(R.string.select_file),
                     icon = Icons.Rounded.UploadFile,
@@ -895,13 +1395,68 @@ private fun ThemeStoreMediaItem(
 }
 
 @Composable
+private fun LkmCardVideoPreviewDialog(
+    show: Boolean,
+    uriString: String?,
+    crop: CustomWallpaperCrop,
+    onDismissRequest: () -> Unit,
+) {
+    if (!show || uriString.isNullOrBlank()) return
+
+    val aspectRatio = if (LocalUiMode.current == UiMode.Material) {
+        1.08f
+    } else {
+        1.86f
+    }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text(stringResource(R.string.home_lkm_wallpaper_preview)) },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(aspectRatio)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                CustomVideoBackground(
+                    uriString = uriString,
+                    drawOverlay = false,
+                    crop = crop,
+                    touchPassthrough = true,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.44f))
+                )
+                Icon(
+                    imageVector = Icons.Rounded.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.Center),
+                    tint = Color.White,
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismissRequest) {
+                Text(stringResource(android.R.string.ok))
+            }
+        },
+    )
+}
+
+@Composable
 private fun ThemeStoreActionRow(
     selected: Boolean,
     onPick: () -> Unit,
     onCrop: () -> Unit,
     onClear: () -> Unit,
+    cropText: String? = null,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ThemeStoreActionFlow {
         ThemeStoreSmallButton(
             text = stringResource(R.string.select_file),
             icon = Icons.Rounded.UploadFile,
@@ -909,7 +1464,7 @@ private fun ThemeStoreActionRow(
         )
         if (selected) {
             ThemeStoreSmallButton(
-                text = stringResource(R.string.settings_wallpaper_crop),
+                text = cropText ?: stringResource(R.string.settings_wallpaper_crop),
                 icon = Icons.Rounded.ImageSearch,
                 onClick = onCrop,
             )
@@ -922,15 +1477,31 @@ private fun ThemeStoreActionRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThemeStoreActionFlow(
+    modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.spacedBy(8.dp),
+    content: @Composable FlowRowScope.() -> Unit,
+) {
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = horizontalArrangement,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        content = content,
+    )
+}
+
 @Composable
 private fun ThemeStoreSmallButton(
+    modifier: Modifier = Modifier,
     text: String,
     icon: ImageVector,
     onClick: () -> Unit,
 ) {
     if (LocalInterfaceStyle.current == InterfaceStyle.Skrootpro.value) {
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .height(36.dp)
                 .clip(RoundedCornerShape(7.dp))
                 .background(SkrootproColors.Purple)
@@ -951,6 +1522,7 @@ private fun ThemeStoreSmallButton(
     }
 
     FilledTonalButton(
+        modifier = modifier,
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
@@ -992,17 +1564,38 @@ private fun ThemeStoreSurface(
 }
 
 @Composable
-private fun ThemeStoreSectionTitle(text: String) {
-    Text(
-        text = text,
-        color = if (LocalInterfaceStyle.current == InterfaceStyle.Skrootpro.value) {
-            SkrootproColors.Text
-        } else {
-            MaterialTheme.colorScheme.primary
-        },
-        fontSize = if (LocalInterfaceStyle.current == InterfaceStyle.Skrootpro.value) skrootproSp(13f, maxScale = 1f) else 14.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+private fun ThemeStoreSelectedBadge(
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
+    Box(
+        modifier = modifier
+            .padding(8.dp)
+            .size(if (compact) 22.dp else 28.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.CheckCircle,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.size(if (compact) 14.dp else 18.dp),
+        )
+    }
+}
+
+@Composable
+private fun backgroundSummary(
+    hasWallpaper: Boolean,
+    hasVideo: Boolean,
+): String {
+    return stringResource(
+        when {
+            hasVideo -> R.string.settings_video_background_selected_summary
+            hasWallpaper -> R.string.settings_wallpaper_selected_summary
+            else -> R.string.settings_background_summary
+        }
     )
 }
 
@@ -1029,13 +1622,21 @@ private data class ThemeStoreActions(
     val onExport: () -> Unit,
     val onImport: () -> Unit,
     val onPickCard: (ThemeStoreImageSlot) -> Unit,
+    val onPickCardVideo: (ThemeStoreImageSlot) -> Unit,
+    val onPreviewCardVideo: (ThemeStoreImageSlot) -> Unit,
     val onCropCard: (ThemeStoreImageSlot) -> Unit,
     val onClearCard: (ThemeStoreImageSlot) -> Unit,
+    val onPickNavigationIcon: (CustomNavigationIconSlot) -> Unit,
+    val onCropNavigationIcon: (CustomNavigationIconSlot) -> Unit,
+    val onClearNavigationIcon: (CustomNavigationIconSlot) -> Unit,
     val onPickWallpaper: () -> Unit,
     val onPreviewWallpaper: () -> Unit,
     val onCropWallpaper: () -> Unit,
     val onClearWallpaper: () -> Unit,
     val onSetWallpaperOpacity: (Float) -> Unit,
+    val onPickVideoBackground: () -> Unit,
+    val onPreviewVideoBackground: () -> Unit,
+    val onSetVideoBackgroundDurationSeconds: (Int) -> Unit,
     val onPickStartupSound: () -> Unit,
     val onPreviewStartupSound: () -> Unit,
     val onClearStartupSound: () -> Unit,
@@ -1046,8 +1647,21 @@ private data class ThemeStoreActions(
 
 private sealed interface CropTarget {
     data class Card(val slot: ThemeStoreImageSlot) : CropTarget
+    data class NavigationIcon(val slot: CustomNavigationIconSlot) : CropTarget
     data object Wallpaper : CropTarget
 }
+
+private data class ThemeStoreNavigationIconOption(
+    val slot: CustomNavigationIconSlot,
+    val icon: ImageVector,
+)
+
+private val themeStoreNavigationIconSlots = listOf(
+    ThemeStoreNavigationIconOption(CustomNavigationIconSlot.Home, Icons.Rounded.Cottage),
+    ThemeStoreNavigationIconOption(CustomNavigationIconSlot.Superuser, Icons.Rounded.Security),
+    ThemeStoreNavigationIconOption(CustomNavigationIconSlot.Module, Icons.Rounded.Extension),
+    ThemeStoreNavigationIconOption(CustomNavigationIconSlot.Settings, Icons.Rounded.Settings),
+)
 
 private val ThemeStoreImageSlot.titleRes: Int
     get() = when (this) {
@@ -1085,3 +1699,20 @@ private fun ThemeStoreSummary.cardState(slot: ThemeStoreImageSlot): ThemeStoreIm
         ThemeStoreImageSlot.SystemInfo -> systemInfoCard
     }
 }
+
+private val ThemeStoreSummary.cardConfiguredCount: Int
+    get() = ThemeStoreImageSlot.entries.count { cardState(it).hasSelected }
+
+private val ThemeStoreSummary.navigationIconConfiguredCount: Int
+    get() = navigationIcons.selectedCount
+
+private val ThemeStoreSummary.mediaConfiguredCount: Int
+    get() = CustomPageBackgroundTarget.entries.count { pageBackgrounds[it].hasMedia } +
+        listOf(
+            wallpaper.hasSelected,
+            !startupSoundUri.isNullOrBlank(),
+            !startupAnimationUri.isNullOrBlank(),
+        ).count { it }
+
+private val ThemeStoreSummary.mediaItemCount: Int
+    get() = CustomPageBackgroundTarget.entries.size + 3

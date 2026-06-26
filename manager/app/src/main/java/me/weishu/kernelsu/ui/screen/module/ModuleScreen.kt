@@ -164,6 +164,17 @@ fun ModulePager(
             return
         }
 
+        InterfaceStyle.Delta.value -> {
+            ModulePagerDelta(
+                uiState = rawUiState,
+                confirmDialogState = rawUiState.confirmDialogState,
+                moduleEvent = viewModel.moduleEvent,
+                actions = actions,
+                bottomInnerPadding = bottomInnerPadding,
+            )
+            return
+        }
+
         InterfaceStyle.Alpha.value -> {
             ModulePagerAlpha(
                 uiState = rawUiState,

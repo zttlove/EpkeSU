@@ -11,6 +11,10 @@
 #include <android/log.h>
 #include <dirent.h>
 #include <cstdlib>
+#include <sys/syscall.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/wait.h>
 
 #include <unistd.h>
 #include <climits>
@@ -19,6 +23,20 @@
 #include "ksu.h"
 
 static int fd = -1;
+
+static inline void set_fd_recv_timeout(int socket_fd) {
+    struct timeval timeout = {};
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 500000;
+    setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+}
+
+static inline void close_driver_fd() {
+    if (fd >= 0) {
+        close(fd);
+        fd = -1;
+    }
+}
 
 static inline void keep_driver_fd_on_exec(int driver_fd) {
     int flags = fcntl(driver_fd, F_GETFD);
@@ -71,16 +89,140 @@ static inline int scan_driver_fd() {
     return found;
 }
 
-template<typename... Args>
-static int ksuctl(unsigned long op, Args &&... args) {
+static bool send_driver_fd(int socket_fd, int driver_fd) {
+    char payload = 0;
+    struct iovec iov = {};
+    iov.iov_base = &payload;
+    iov.iov_len = sizeof(payload);
+    char control[CMSG_SPACE(sizeof(int))] = {};
+    struct msghdr msg = {};
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control;
+    msg.msg_controllen = sizeof(control);
 
+    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+    cmsg->cmsg_level = SOL_SOCKET;
+    cmsg->cmsg_type = SCM_RIGHTS;
+    cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+    memcpy(CMSG_DATA(cmsg), &driver_fd, sizeof(driver_fd));
+
+    return sendmsg(socket_fd, &msg, 0) == sizeof(payload);
+}
+
+static int recv_driver_fd(int socket_fd) {
+    char payload = 0;
+    struct iovec iov = {};
+    iov.iov_base = &payload;
+    iov.iov_len = sizeof(payload);
+    char control[CMSG_SPACE(sizeof(int))] = {};
+    struct msghdr msg = {};
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control;
+    msg.msg_controllen = sizeof(control);
+
+    ssize_t n = recvmsg(socket_fd, &msg, 0);
+    if (n <= 0) {
+        return -1;
+    }
+
+    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+    if (!cmsg || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
+        return -1;
+    }
+
+    int driver_fd = -1;
+    memcpy(&driver_fd, CMSG_DATA(cmsg), sizeof(driver_fd));
+    return driver_fd;
+}
+
+static inline int install_driver_fd() {
+    int sockets[2] = {-1, -1};
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) < 0) {
+        return -1;
+    }
+    set_fd_recv_timeout(sockets[0]);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        int saved_errno = errno;
+        close(sockets[0]);
+        close(sockets[1]);
+        errno = saved_errno;
+        return -1;
+    }
+
+    if (pid == 0) {
+        close(sockets[0]);
+        int child_fd = -1;
+        syscall(SYS_reboot, KSU_INSTALL_MAGIC1, KSU_INSTALL_MAGIC2, 0, &child_fd);
+        bool sent = child_fd >= 0 && send_driver_fd(sockets[1], child_fd);
+        if (child_fd >= 0) {
+            close(child_fd);
+        }
+        close(sockets[1]);
+        _exit(sent ? 0 : 1);
+    }
+
+    close(sockets[1]);
+    int driver_fd = recv_driver_fd(sockets[0]);
+    close(sockets[0]);
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+
+    if (driver_fd >= 0) {
+        keep_driver_fd_on_exec(driver_fd);
+    } else {
+        errno = ENODEV;
+    }
+    return driver_fd;
+}
+
+static int ensure_driver_fd(bool allow_install) {
     if (fd < 0) {
         fd = scan_driver_fd();
+    }
+    if (fd < 0 && allow_install) {
+        fd = install_driver_fd();
+    }
+
+    return fd;
+}
+
+template<typename... Args>
+static int ksuctl_impl(bool allow_install, unsigned long op, Args &&... args) {
+    int driver_fd = ensure_driver_fd(allow_install);
+    if (driver_fd < 0) {
+        errno = ENODEV;
+        return -1;
     }
 
     static_assert(sizeof...(Args) <= 1, "ioctl expects at most one extra argument");
 
-    return ioctl(fd, op, std::forward<Args>(args)...);
+    int ret = ioctl(driver_fd, op, std::forward<Args>(args)...);
+    if (ret < 0 && (errno == EBADF || errno == ENOTTY)) {
+        close_driver_fd();
+        driver_fd = ensure_driver_fd(allow_install);
+        if (driver_fd < 0) {
+            errno = ENODEV;
+            return -1;
+        }
+        ret = ioctl(driver_fd, op, std::forward<Args>(args)...);
+    }
+    return ret;
+}
+
+template<typename... Args>
+static int ksuctl(unsigned long op, Args &&... args) {
+    return ksuctl_impl(true, op, std::forward<Args>(args)...);
+}
+
+template<typename... Args>
+static int ksuctl_scan_only(unsigned long op, Args &&... args) {
+    return ksuctl_impl(false, op, std::forward<Args>(args)...);
 }
 
 static struct ksu_get_info_cmd g_version {};
@@ -88,11 +230,19 @@ static struct ksu_get_info_cmd g_version {};
 struct ksu_get_info_cmd get_info() {
     if (!g_version.version) {
         if (ksuctl(KSU_IOCTL_GET_INFO, &g_version) < 0) {
-            ksuctl(KSU_IOCTL_GET_INFO_LEGACY, &g_version);
+            auto legacy = legacy_get_info();
+            g_version.version = legacy.first;
+            g_version.flags = legacy.second;
+            g_version.features = 0;
             g_version.uapi_version = 0;
         }
     }
     return g_version;
+}
+
+void refresh_info() {
+    g_version = {};
+    get_info();
 }
 
 uint32_t get_kernel_uapi_version() {
@@ -110,12 +260,12 @@ uint32_t get_version() {
 }
 
 bool get_allow_list(struct ksu_new_get_allow_list_cmd *cmd) {
-    return ksuctl(KSU_IOCTL_NEW_GET_ALLOW_LIST, cmd) == 0;
+    return ksuctl_scan_only(KSU_IOCTL_NEW_GET_ALLOW_LIST, cmd) == 0;
 }
 
 bool is_safe_mode() {
     struct ksu_check_safemode_cmd cmd = {};
-    ksuctl(KSU_IOCTL_CHECK_SAFEMODE, &cmd);
+    ksuctl_scan_only(KSU_IOCTL_CHECK_SAFEMODE, &cmd);
     return cmd.in_safe_mode;
 }
 
@@ -154,7 +304,7 @@ bool is_pr_build() {
 bool uid_should_umount(int uid) {
     struct ksu_uid_should_umount_cmd cmd = {};
     cmd.uid = uid;
-    ksuctl(KSU_IOCTL_UID_SHOULD_UMOUNT, &cmd);
+    ksuctl_scan_only(KSU_IOCTL_UID_SHOULD_UMOUNT, &cmd);
     return cmd.should_umount;
 }
 
@@ -166,7 +316,7 @@ bool set_app_profile(const app_profile *profile) {
 
 int get_app_profile(app_profile *profile) {
     struct ksu_get_app_profile_cmd cmd = {.profile = *profile};
-    int ret = ksuctl(KSU_IOCTL_GET_APP_PROFILE, &cmd);
+    int ret = ksuctl_scan_only(KSU_IOCTL_GET_APP_PROFILE, &cmd);
     *profile = cmd.profile;
     return ret;
 }
@@ -181,7 +331,7 @@ bool set_su_enabled(bool enabled) {
 bool is_su_enabled() {
     struct ksu_get_feature_cmd cmd = {};
     cmd.feature_id = KSU_FEATURE_SU_COMPAT;
-    if (ksuctl(KSU_IOCTL_GET_FEATURE, &cmd) != 0) {
+    if (ksuctl_scan_only(KSU_IOCTL_GET_FEATURE, &cmd) != 0) {
         return false;
     }
     if (!cmd.supported) {
@@ -193,7 +343,7 @@ bool is_su_enabled() {
 static inline bool get_feature(uint32_t feature_id, uint64_t *out_value, bool *out_supported) {
     struct ksu_get_feature_cmd cmd = {};
     cmd.feature_id = feature_id;
-    if (ksuctl(KSU_IOCTL_GET_FEATURE, &cmd) != 0) {
+    if (ksuctl_scan_only(KSU_IOCTL_GET_FEATURE, &cmd) != 0) {
         return false;
     }
     if (out_value) *out_value = cmd.value;

@@ -45,6 +45,12 @@ Java_me_weishu_kernelsu_Natives_getVersion(JNIEnv *env, jobject) {
 }
 
 extern "C"
+JNIEXPORT void JNICALL
+Java_me_weishu_kernelsu_Natives_refreshInfo(JNIEnv *env, jobject) {
+    refresh_info();
+}
+
+extern "C"
 JNIEXPORT jint JNICALL
 Java_me_weishu_kernelsu_Natives_getKernelUAPIVersion(JNIEnv *env, jobject) {
     return get_kernel_uapi_version();
@@ -432,7 +438,7 @@ Java_me_weishu_kernelsu_Natives_getUserName(JNIEnv *env, jobject thiz, jint uid)
     return nullptr;
 }
 
-int fork_dont_care_and_exec_ksud(const char *path, const char *pkg) {
+int fork_dont_care_and_exec_ksud(const char *path, const char *pkg, int manager_uid) {
     int pid = fork();
     if (pid < 0) {
         PLOGE("fork");
@@ -462,7 +468,10 @@ int fork_dont_care_and_exec_ksud(const char *path, const char *pkg) {
         _exit(0);
     }
 
-    execl(path, "ksud", "late-load", "--magica", "5555", "--package-name", pkg, nullptr);
+    char manager_uid_arg[16];
+    snprintf(manager_uid_arg, sizeof(manager_uid_arg), "%d", manager_uid);
+    execl(path, "ksud", "late-load", "--magica", "5555", "--package-name", pkg,
+          "--manager-uid", manager_uid_arg, nullptr);
     PLOGE("exec magica");
     _exit(1);
 }
@@ -470,11 +479,13 @@ int fork_dont_care_and_exec_ksud(const char *path, const char *pkg) {
 extern "C"
 JNIEXPORT void JNICALL
 Java_me_weishu_kernelsu_magica_AppZygotePreload_forkDontCareAndExecKsud(JNIEnv *env, jclass clazz,
-                                                                        jstring ksud_path, jstring pkg_name) {
+                                                                        jstring ksud_path,
+                                                                        jstring pkg_name,
+                                                                        jint manager_uid) {
     auto path = env->GetStringUTFChars(ksud_path, nullptr);
     auto pkg = env->GetStringUTFChars(pkg_name, nullptr);
-    LOGD("executing magica %s (pkg %s)", path, pkg);
-    fork_dont_care_and_exec_ksud(path, pkg);
+    LOGD("executing magica %s (pkg %s, uid %d)", path, pkg, manager_uid);
+    fork_dont_care_and_exec_ksud(path, pkg, manager_uid);
     env->ReleaseStringUTFChars(ksud_path, path);
     env->ReleaseStringUTFChars(pkg_name, pkg);
 }

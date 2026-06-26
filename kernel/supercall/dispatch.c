@@ -320,6 +320,36 @@ static int do_get_manager_appid(void __user *arg)
     return 0;
 }
 
+static int do_set_manager_appid(void __user *arg)
+{
+    struct ksu_set_manager_appid_cmd cmd;
+
+    if (copy_from_user(&cmd, arg, sizeof(cmd))) {
+        pr_err("set_manager_appid: copy_from_user failed\n");
+        return -EFAULT;
+    }
+
+    if (cmd.appid >= KSU_PER_USER_RANGE) {
+        pr_err("set_manager_appid: invalid appid %u\n", cmd.appid);
+        return -EINVAL;
+    }
+
+    if (ksu_is_manager_appid_valid()) {
+        if (cmd.appid == ksu_get_manager_appid()) {
+            return 0;
+        }
+
+        pr_warn("set_manager_appid: refusing to replace manager appid %u with %u\n",
+                ksu_get_manager_appid(), cmd.appid);
+        return -EPERM;
+    }
+
+    ksu_set_manager_appid(cmd.appid);
+    pr_info("manager appid set by root: %u\n", cmd.appid);
+
+    return 0;
+}
+
 static int do_get_app_profile(void __user *arg)
 {
 #ifdef CONFIG_KSU_DISABLE_POLICY
@@ -834,6 +864,12 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
         .name = "DISABLE_ESCAPE_TO_ROOT", 
         .handler = do_disable_escape_to_root, 
         .perm_check = only_root 
+    },
+    {
+        .cmd = KSU_IOCTL_SET_MANAGER_APPID,
+        .name = "SET_MANAGER_APPID",
+        .handler = do_set_manager_appid,
+        .perm_check = only_root
     },
     {
         .cmd = 0,

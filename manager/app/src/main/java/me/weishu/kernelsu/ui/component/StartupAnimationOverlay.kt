@@ -35,6 +35,7 @@ import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import me.weishu.kernelsu.ui.util.isCustomStartupAnimationGif
 import me.weishu.kernelsu.ui.util.isCustomStartupAnimationVideo
 
 private const val MAX_STARTUP_ANIMATION_DURATION_MS = 5_000L
@@ -56,7 +57,8 @@ fun StartupAnimationOverlay(
 
     val context = LocalContext.current
     val uri = remember(uriString) { uriString.toUri() }
-    val isVideo = remember(uriString) { isCustomStartupAnimationVideo(context, uri) }
+    val isGif = remember(uriString) { isCustomStartupAnimationGif(context, uri) }
+    val isVideo = remember(uriString, isGif) { !isGif && isCustomStartupAnimationVideo(context, uri) }
     var isVideoRendering by remember(uriString) { mutableStateOf(false) }
     val currentOnFinished by rememberUpdatedState(onFinished)
 
@@ -171,9 +173,9 @@ private fun StartupAnimationVideo(
                         }
 
                         override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
-                            mediaPlayer?.release()
+                            runCatching { mediaPlayer?.release() }
                             mediaPlayer = null
-                            surface?.release()
+                            runCatching { surface?.release() }
                             surface = null
                             return true
                         }
@@ -187,9 +189,9 @@ private fun StartupAnimationVideo(
 
     DisposableEffect(uri) {
         onDispose {
-            mediaPlayer?.release()
+            runCatching { mediaPlayer?.release() }
             mediaPlayer = null
-            surface?.release()
+            runCatching { surface?.release() }
             surface = null
         }
     }
@@ -270,8 +272,8 @@ private fun StartupAnimationImage(
             drawable.registerAnimationCallback(callback)
             drawable.start()
             onDispose {
-                drawable.unregisterAnimationCallback(callback)
-                drawable.stop()
+                runCatching { drawable.unregisterAnimationCallback(callback) }
+                runCatching { drawable.stop() }
             }
         }
     } else {

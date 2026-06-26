@@ -29,7 +29,11 @@ class WebUIState {
     var webViewInterface: WebViewInterface? = null
     var downloadInterface: WebUIDownloadInterface? = null
     lateinit var modDir: String
+    var moduleId: String = ""
     var moduleName: String = ""
+    var moduleVersion: String = ""
+    var moduleVersionCode: String = ""
+    var isBuiltinModule: Boolean = false
 
     var uiEvent by mutableStateOf<WebUIEvent>(WebUIEvent.Loading)
     var isUrlLoaded = false

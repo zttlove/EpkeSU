@@ -3,11 +3,14 @@ use anyhow::bail;
 
 use crate::ksu_uapi;
 use std::fs;
+use std::io;
+use std::mem;
 use std::os::fd::RawFd;
-use std::sync::OnceLock;
+use std::ptr;
+use std::sync::{Mutex, OnceLock};
 
 // Global driver fd cache
-static DRIVER_FD: OnceLock<RawFd> = OnceLock::new();
+static DRIVER_FD: Mutex<RawFd> = Mutex::new(-1);
 static INFO_CACHE: OnceLock<ksu_uapi::ksu_get_info_cmd> = OnceLock::new();
 
 fn scan_driver_fd() -> Option<RawFd> {
@@ -28,37 +31,216 @@ fn scan_driver_fd() -> Option<RawFd> {
     None
 }
 
+fn close_fd(fd: RawFd) {
+    if fd >= 0 {
+        unsafe {
+            libc::close(fd);
+        }
+    }
+}
+
+fn wait_for_child(pid: libc::pid_t) {
+    let mut status = 0;
+    loop {
+        let ret = unsafe { libc::waitpid(pid, &raw mut status, 0) };
+        if ret >= 0 || io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            break;
+        }
+    }
+}
+
+fn set_recv_timeout(fd: RawFd) {
+    let timeout = libc::timeval {
+        tv_sec: 1,
+        tv_usec: 500_000,
+    };
+    unsafe {
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_RCVTIMEO,
+            (&raw const timeout).cast(),
+            mem::size_of_val(&timeout) as libc::socklen_t,
+        );
+    }
+}
+
+const fn cmsg_align(len: usize) -> usize {
+    let align = mem::size_of::<usize>();
+    (len + align - 1) & !(align - 1)
+}
+
+const fn cmsg_space(payload_len: usize) -> usize {
+    cmsg_align(mem::size_of::<libc::cmsghdr>()) + cmsg_align(payload_len)
+}
+
+const fn cmsg_len(payload_len: usize) -> usize {
+    cmsg_align(mem::size_of::<libc::cmsghdr>()) + payload_len
+}
+
+fn send_fd(socket_fd: RawFd, fd: RawFd) -> io::Result<()> {
+    let payload = [0u8; 1];
+    let mut iov = libc::iovec {
+        iov_base: payload.as_ptr().cast_mut().cast(),
+        iov_len: payload.len(),
+    };
+    let control_len = cmsg_space(mem::size_of::<RawFd>());
+    let mut control = [0usize; 8];
+    let mut msg = unsafe { mem::zeroed::<libc::msghdr>() };
+    msg.msg_iov = &raw mut iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control.as_mut_ptr().cast();
+    msg.msg_controllen = control_len;
+
+    let cmsg = msg.msg_control.cast::<libc::cmsghdr>();
+    unsafe {
+        (*cmsg).cmsg_level = libc::SOL_SOCKET;
+        (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+        (*cmsg).cmsg_len = cmsg_len(mem::size_of::<RawFd>()) as _;
+        let data = cmsg
+            .cast::<u8>()
+            .add(cmsg_align(mem::size_of::<libc::cmsghdr>()));
+        let fd_bytes = fd.to_ne_bytes();
+        ptr::copy_nonoverlapping(fd_bytes.as_ptr(), data, fd_bytes.len());
+
+        if libc::sendmsg(socket_fd, &raw const msg, 0) < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn recv_fd(socket_fd: RawFd) -> io::Result<RawFd> {
+    let mut payload = [0u8; 1];
+    let mut iov = libc::iovec {
+        iov_base: payload.as_mut_ptr().cast(),
+        iov_len: payload.len(),
+    };
+    let control_len = cmsg_space(mem::size_of::<RawFd>());
+    let mut control = [0usize; 8];
+    let mut msg = unsafe { mem::zeroed::<libc::msghdr>() };
+    msg.msg_iov = &raw mut iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control.as_mut_ptr().cast();
+    msg.msg_controllen = control_len;
+
+    let n = unsafe { libc::recvmsg(socket_fd, &raw mut msg, 0) };
+    if n < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if n == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "driver fd was not sent",
+        ));
+    }
+
+    let cmsg = msg.msg_control.cast::<libc::cmsghdr>();
+    unsafe {
+        if msg.msg_controllen < cmsg_len(mem::size_of::<RawFd>())
+            || (*cmsg).cmsg_level != libc::SOL_SOCKET
+            || (*cmsg).cmsg_type != libc::SCM_RIGHTS
+        {
+            return Err(io::Error::other("driver fd control message is missing"));
+        }
+
+        let data = cmsg
+            .cast::<u8>()
+            .add(cmsg_align(mem::size_of::<libc::cmsghdr>()));
+        let mut fd_bytes = [0u8; mem::size_of::<RawFd>()];
+        ptr::copy_nonoverlapping(data, fd_bytes.as_mut_ptr(), fd_bytes.len());
+        let fd = RawFd::from_ne_bytes(fd_bytes);
+        if fd >= 0 {
+            Ok(fd)
+        } else {
+            Err(io::Error::other("invalid driver fd"))
+        }
+    }
+}
+
+fn install_driver_fd_via_reboot() -> Option<RawFd> {
+    let mut sockets = [-1; 2];
+    if unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sockets.as_mut_ptr()) } < 0 {
+        return None;
+    }
+    set_recv_timeout(sockets[0]);
+
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        close_fd(sockets[0]);
+        close_fd(sockets[1]);
+        return None;
+    }
+
+    if pid == 0 {
+        close_fd(sockets[0]);
+        let mut fd = -1;
+        unsafe {
+            libc::syscall(
+                libc::SYS_reboot,
+                ksu_uapi::KSU_INSTALL_MAGIC1,
+                ksu_uapi::KSU_INSTALL_MAGIC2,
+                0,
+                &raw mut fd,
+            );
+        };
+        let sent = fd >= 0 && send_fd(sockets[1], fd).is_ok();
+        close_fd(fd);
+        close_fd(sockets[1]);
+        unsafe {
+            libc::_exit(i32::from(!sent));
+        }
+    }
+
+    close_fd(sockets[1]);
+    let fd = recv_fd(sockets[0]).ok();
+    close_fd(sockets[0]);
+    wait_for_child(pid);
+    fd
+}
+
 // Get cached driver fd
 fn init_driver_fd() -> Option<RawFd> {
     if let Some(fd) = scan_driver_fd() {
         return Some(fd);
     }
 
-    let mut fd = -1;
-    unsafe {
-        libc::syscall(
-            libc::SYS_reboot,
-            ksu_uapi::KSU_INSTALL_MAGIC1,
-            ksu_uapi::KSU_INSTALL_MAGIC2,
-            0,
-            &mut fd,
-        );
-    };
-    if fd >= 0 { Some(fd) } else { None }
+    install_driver_fd_via_reboot()
 }
 
 // ioctl wrapper using libc
 fn ksuctl<T>(request: u32, arg: *mut T) -> std::io::Result<i32> {
     use std::io;
 
-    let fd = *DRIVER_FD.get_or_init(|| init_driver_fd().unwrap_or(-1));
-    unsafe {
-        let ret = libc::ioctl(fd as libc::c_int, request as i32, arg);
-        if ret < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(ret)
+    let mut fd = DRIVER_FD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *fd < 0 {
+        *fd = init_driver_fd().unwrap_or(-1);
+    }
+
+    let mut ret = unsafe { libc::ioctl(*fd as libc::c_int, request as i32, arg) };
+    if ret < 0 {
+        let err = io::Error::last_os_error();
+        if matches!(
+            err.raw_os_error(),
+            Some(code) if code == libc::EBADF || code == libc::ENOTTY
+        ) {
+            if *fd >= 0 {
+                unsafe {
+                    libc::close(*fd as libc::c_int);
+                }
+            }
+            *fd = init_driver_fd().unwrap_or(-1);
+            ret = unsafe { libc::ioctl(*fd as libc::c_int, request as i32, arg) };
         }
+    }
+
+    if ret < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(ret)
     }
 }
 
@@ -159,6 +341,68 @@ pub fn get_sulog_fd() -> std::io::Result<RawFd> {
     let mut cmd = ksu_uapi::ksu_get_sulog_fd_cmd { flags: 0 };
     let result = ksuctl(ksu_uapi::KSU_IOCTL_GET_SULOG_FD, &raw mut cmd)?;
     Ok(result)
+}
+
+fn set_manager_appid_ioctl(appid: u32) -> std::io::Result<()> {
+    let mut cmd = ksu_uapi::ksu_set_manager_appid_cmd { appid };
+    ksuctl(ksu_uapi::KSU_IOCTL_SET_MANAGER_APPID, &raw mut cmd)?;
+    Ok(())
+}
+
+pub fn get_manager_appid() -> std::io::Result<u32> {
+    let mut cmd = ksu_uapi::ksu_get_manager_appid_cmd { appid: 0 };
+    ksuctl(ksu_uapi::KSU_IOCTL_GET_MANAGER_APPID, &raw mut cmd)?;
+    Ok(cmd.appid)
+}
+
+fn verify_manager_appid(appid: u32) -> std::io::Result<()> {
+    use std::io;
+
+    match get_manager_appid() {
+        Ok(current) if current == appid => Ok(()),
+        Ok(current) => Err(io::Error::other(format!(
+            "manager appid is {current}, expected {appid}"
+        ))),
+        Err(e) => Err(e),
+    }
+}
+
+fn set_manager_appid_reboot(appid: u32) -> std::io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        format!("reboot manager appid fallback is unsupported for {appid}"),
+    ))
+}
+
+fn set_manager_appid_sysfs(appid: u32) -> std::io::Result<()> {
+    std::fs::write(
+        "/sys/module/kernelsu/parameters/ksu_debug_manager_appid",
+        appid.to_string(),
+    )?;
+
+    verify_manager_appid(appid)
+}
+
+pub fn set_manager_appid(appid: u32) -> std::io::Result<()> {
+    use std::io;
+
+    let ioctl_err = match set_manager_appid_ioctl(appid).and_then(|()| verify_manager_appid(appid))
+    {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let reboot_err = match set_manager_appid_reboot(appid) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let sysfs_err = match set_manager_appid_sysfs(appid) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+
+    Err(io::Error::other(format!(
+        "failed to set manager appid {appid}; ioctl: {ioctl_err}; reboot: {reboot_err}; sysfs: {sysfs_err}"
+    )))
 }
 
 /// Get mark status for a process (pid=0 returns total marked count)

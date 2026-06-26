@@ -18,6 +18,7 @@ import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.ui.LocalUiMode
 import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
+import me.weishu.kernelsu.ui.util.KernelStatusEvents
 import me.weishu.kernelsu.ui.util.reboot
 
 @Composable
@@ -51,6 +52,7 @@ fun FlashScreen(flashIt: FlashIt) {
         onTextUpdate = { text = it },
         onShowRebootChange = { showRebootAction = it },
         onFlashingStatusChange = { flashingStatus = it },
+        onFlashSuccess = { KernelStatusEvents.requestRefresh() },
         enabled = flashingEnabled,
     )
 
@@ -64,6 +66,7 @@ fun FlashScreen(flashIt: FlashIt) {
         onBack = dropUnlessResumed { navigator.pop() },
         onSaveLog = saveLog(logContent, scope) { showMessage(it) },
         onReboot = {
+            KernelStatusEvents.requestRefresh()
             scope.launch {
                 withContext(Dispatchers.IO) {
                     reboot()

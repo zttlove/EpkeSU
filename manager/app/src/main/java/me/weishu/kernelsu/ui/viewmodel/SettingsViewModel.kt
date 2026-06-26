@@ -1,9 +1,11 @@
 package me.weishu.kernelsu.ui.viewmodel
 
 import android.system.OsConstants
+import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,26 +21,38 @@ import me.weishu.kernelsu.ksuApp
 import me.weishu.kernelsu.ui.InterfaceStyle
 import me.weishu.kernelsu.ui.screen.settings.SettingsUiState
 import me.weishu.kernelsu.ui.theme.ColorMode
+import me.weishu.kernelsu.ui.theme.DeltaColorVariant
 import me.weishu.kernelsu.ui.theme.ThemeAppearanceDefaults
 import me.weishu.kernelsu.ui.theme.ThemePreset
 import me.weishu.kernelsu.ui.theme.ThemeSyncStrategy
+import me.weishu.kernelsu.ui.util.CustomNavigationIconSlot
+import me.weishu.kernelsu.ui.util.CustomPageBackgroundTarget
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
+import me.weishu.kernelsu.ui.util.BUILTIN_MOUNT_MODE_MAGIC
+import me.weishu.kernelsu.ui.util.BUILTIN_MOUNT_MODE_OVERLAY
 import me.weishu.kernelsu.ui.util.LauncherIconOption
 
 class SettingsViewModel(
     private val repo: SettingsRepository = SettingsRepositoryImpl()
 ) : ViewModel() {
 
+    private val refreshExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "refresh settings failed", throwable)
+    }
+
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
-        refresh()
+        viewModelScope.launch(refreshExceptionHandler) {
+            refresh()
+        }
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        viewModelScope.launch(refreshExceptionHandler) {
             val checkModuleUpdate = repo.checkModuleUpdate
+            val showVersionMismatchWarning = repo.showVersionMismatchWarning
             val themeMode = repo.themeMode
             val miuixMonet = repo.miuixMonet
             val keyColor = repo.keyColor
@@ -61,9 +75,19 @@ class SettingsViewModel(
             val customWallpaperCrop = repo.customWallpaperCrop
             val customWallpaperPassthroughEnabled = repo.customWallpaperPassthroughEnabled
             val customWallpaperPassthroughOpacity = repo.customWallpaperPassthroughOpacity
+            val customVideoBackgroundUri = repo.customVideoBackgroundUri
+            val customVideoBackgroundDurationSeconds = repo.customVideoBackgroundDurationSeconds
+            val customPageBackgrounds = repo.customPageBackgrounds
             val customStartupAnimationUri = repo.customStartupAnimationUri
             val customStartupSoundUri = repo.customStartupSoundUri
             val customStartupSoundDurationSeconds = repo.customStartupSoundDurationSeconds
+            val customStartupSoundVolume = repo.customStartupSoundVolume
+            val customClickSoundUri = repo.customClickSoundUri
+            val customClickSoundVolume = repo.customClickSoundVolume
+            val customBackgroundMusicUri = repo.customBackgroundMusicUri
+            val customBackgroundMusicVolume = repo.customBackgroundMusicVolume
+            val customNavigationIcons = repo.customNavigationIcons
+            val deltaColorVariant = repo.deltaColorVariant
             val colorStyle = repo.colorStyle
             val colorSpec = repo.colorSpec
             val themePreset = resolveThemePreset(
@@ -101,6 +125,8 @@ class SettingsViewModel(
             val avcSpoofStatus = repo.getAvcSpoofStatus()
             val isAvcSpoofEnabled = repo.isAvcSpoofEnabled()
             val isDefaultUmountModules = repo.isDefaultUmountModules()
+            val builtinMountStatus = repo.getBuiltinMountStatus()
+            val isEpkesuHideEnabled = repo.getEpkesuHideStatus()
             val autoJailbreak = repo.autoJailbreak
             val isLateLoadMode = Natives.isLateLoadMode
 
@@ -108,6 +134,7 @@ class SettingsViewModel(
                 it.copy(
                     uiMode = uiMode,
                     checkModuleUpdate = checkModuleUpdate,
+                    showVersionMismatchWarning = showVersionMismatchWarning,
                     themeMode = themeMode,
                     miuixMonet = miuixMonet,
                     keyColor = keyColor,
@@ -129,9 +156,19 @@ class SettingsViewModel(
                     customWallpaperCrop = customWallpaperCrop,
                     customWallpaperPassthroughEnabled = customWallpaperPassthroughEnabled,
                     customWallpaperPassthroughOpacity = customWallpaperPassthroughOpacity,
+                    customVideoBackgroundUri = customVideoBackgroundUri,
+                    customVideoBackgroundDurationSeconds = customVideoBackgroundDurationSeconds,
+                    customPageBackgrounds = customPageBackgrounds,
                     customStartupAnimationUri = customStartupAnimationUri,
                     customStartupSoundUri = customStartupSoundUri,
                     customStartupSoundDurationSeconds = customStartupSoundDurationSeconds,
+                    customStartupSoundVolume = customStartupSoundVolume,
+                    customClickSoundUri = customClickSoundUri,
+                    customClickSoundVolume = customClickSoundVolume,
+                    customBackgroundMusicUri = customBackgroundMusicUri,
+                    customBackgroundMusicVolume = customBackgroundMusicVolume,
+                    customNavigationIcons = customNavigationIcons,
+                    deltaColorVariant = deltaColorVariant,
                     colorStyle = colorStyle,
                     colorSpec = colorSpec,
                     suCompatStatus = suCompatStatus,
@@ -148,6 +185,11 @@ class SettingsViewModel(
                     avcSpoofStatus = avcSpoofStatus,
                     isAvcSpoofEnabled = isAvcSpoofEnabled,
                     isDefaultUmountModules = isDefaultUmountModules,
+                    isBuiltinMountEnabled = builtinMountStatus.enabled,
+                    builtinMountDefaultMode = builtinMountStatus.defaultMode,
+                    isBuiltinMountWebUiAvailable = builtinMountStatus.webUi,
+                    builtinMountConflict = builtinMountStatus.conflict,
+                    isEpkesuHideEnabled = isEpkesuHideEnabled,
                     isLkmMode = isLkmMode,
                     autoJailbreak = autoJailbreak,
                     isLateLoadMode = isLateLoadMode,
@@ -178,6 +220,13 @@ class SettingsViewModel(
                 return
             }
 
+            InterfaceStyle.Delta.value -> {
+                repo.uiMode = mode
+                applyThemePreset(ThemePreset.DELTA)
+                _uiState.update { it.copy(uiMode = mode) }
+                return
+            }
+
             InterfaceStyle.LiquidGlass.value -> {
                 repo.uiMode = mode
                 applyThemePreset(ThemePreset.LIQUID_GLASS)
@@ -190,6 +239,7 @@ class SettingsViewModel(
         val currentThemeMode = repo.themeMode
         val isLeavingSpecialStyle = oldMode == InterfaceStyle.Skrootpro.value ||
             oldMode == InterfaceStyle.Alpha.value ||
+            oldMode == InterfaceStyle.Delta.value ||
             oldMode == InterfaceStyle.LiquidGlass.value
 
         if (isLeavingSpecialStyle && (mode == InterfaceStyle.Miuix.value || mode == InterfaceStyle.Material.value)) {
@@ -236,6 +286,11 @@ class SettingsViewModel(
         _uiState.update { it.copy(checkModuleUpdate = enabled) }
     }
 
+    fun setShowVersionMismatchWarning(enabled: Boolean) {
+        repo.showVersionMismatchWarning = enabled
+        _uiState.update { it.copy(showVersionMismatchWarning = enabled) }
+    }
+
     fun setLauncherIconByIndex(index: Int) {
         val option = LauncherIconOption.entries.getOrElse(index) { LauncherIconOption.Default }
         repo.launcherIcon = option.value
@@ -253,6 +308,7 @@ class SettingsViewModel(
             it.copy(
                 customWallpaperUri = repo.customWallpaperUri,
                 customWallpaperCrop = repo.customWallpaperCrop,
+                customVideoBackgroundUri = repo.customVideoBackgroundUri,
             )
         }
     }
@@ -281,6 +337,57 @@ class SettingsViewModel(
         _uiState.update { it.copy(customWallpaperPassthroughOpacity = repo.customWallpaperPassthroughOpacity) }
     }
 
+    fun setCustomVideoBackgroundUri(uri: String?) {
+        repo.customVideoBackgroundUri = uri
+        _uiState.update {
+            it.copy(
+                customVideoBackgroundUri = repo.customVideoBackgroundUri,
+                customWallpaperUri = repo.customWallpaperUri,
+            )
+        }
+    }
+
+    fun clearCustomVideoBackground() {
+        setCustomVideoBackgroundUri(null)
+    }
+
+    fun setCustomVideoBackgroundDurationSeconds(seconds: Int) {
+        repo.customVideoBackgroundDurationSeconds = seconds
+        _uiState.update {
+            it.copy(customVideoBackgroundDurationSeconds = repo.customVideoBackgroundDurationSeconds)
+        }
+    }
+
+    fun setCustomPageBackgroundWallpaper(target: CustomPageBackgroundTarget, uri: String?) {
+        repo.setCustomPageBackgroundWallpaper(target, uri)
+        _uiState.update { it.copy(customPageBackgrounds = repo.customPageBackgrounds) }
+    }
+
+    fun setCustomPageBackgroundVideo(target: CustomPageBackgroundTarget, uri: String?) {
+        repo.setCustomPageBackgroundVideo(target, uri)
+        _uiState.update { it.copy(customPageBackgrounds = repo.customPageBackgrounds) }
+    }
+
+    fun setCustomPageBackgroundOpacity(target: CustomPageBackgroundTarget, opacity: Float) {
+        repo.setCustomPageBackgroundOpacity(target, opacity)
+        _uiState.update { it.copy(customPageBackgrounds = repo.customPageBackgrounds) }
+    }
+
+    fun setCustomPageBackgroundCrop(target: CustomPageBackgroundTarget, crop: CustomWallpaperCrop) {
+        repo.setCustomPageBackgroundCrop(target, crop)
+        _uiState.update { it.copy(customPageBackgrounds = repo.customPageBackgrounds) }
+    }
+
+    fun setCustomPageBackgroundVideoDurationSeconds(target: CustomPageBackgroundTarget, seconds: Int) {
+        repo.setCustomPageBackgroundVideoDurationSeconds(target, seconds)
+        _uiState.update { it.copy(customPageBackgrounds = repo.customPageBackgrounds) }
+    }
+
+    fun clearCustomPageBackground(target: CustomPageBackgroundTarget) {
+        repo.clearCustomPageBackground(target)
+        _uiState.update { it.copy(customPageBackgrounds = repo.customPageBackgrounds) }
+    }
+
     fun setCustomStartupSoundUri(uri: String?) {
         repo.customStartupSoundUri = uri
         _uiState.update { it.copy(customStartupSoundUri = repo.customStartupSoundUri) }
@@ -293,6 +400,59 @@ class SettingsViewModel(
     fun setCustomStartupSoundDurationSeconds(seconds: Int) {
         repo.customStartupSoundDurationSeconds = seconds
         _uiState.update { it.copy(customStartupSoundDurationSeconds = repo.customStartupSoundDurationSeconds) }
+    }
+
+    fun setCustomStartupSoundVolume(volume: Float) {
+        repo.customStartupSoundVolume = volume
+        _uiState.update { it.copy(customStartupSoundVolume = repo.customStartupSoundVolume) }
+    }
+
+    fun setCustomClickSoundUri(uri: String?) {
+        repo.customClickSoundUri = uri
+        _uiState.update { it.copy(customClickSoundUri = repo.customClickSoundUri) }
+    }
+
+    fun clearCustomClickSound() {
+        setCustomClickSoundUri(null)
+    }
+
+    fun setCustomClickSoundVolume(volume: Float) {
+        repo.customClickSoundVolume = volume
+        _uiState.update { it.copy(customClickSoundVolume = repo.customClickSoundVolume) }
+    }
+
+    fun setCustomBackgroundMusicUri(uri: String?) {
+        repo.customBackgroundMusicUri = uri
+        _uiState.update { it.copy(customBackgroundMusicUri = repo.customBackgroundMusicUri) }
+    }
+
+    fun clearCustomBackgroundMusic() {
+        setCustomBackgroundMusicUri(null)
+    }
+
+    fun setCustomBackgroundMusicVolume(volume: Float) {
+        repo.customBackgroundMusicVolume = volume
+        _uiState.update { it.copy(customBackgroundMusicVolume = repo.customBackgroundMusicVolume) }
+    }
+
+    fun setCustomNavigationIcon(slot: CustomNavigationIconSlot, uriString: String?) {
+        repo.setCustomNavigationIcon(slot, uriString)
+        _uiState.update { it.copy(customNavigationIcons = repo.customNavigationIcons) }
+    }
+
+    fun clearCustomNavigationIcon(slot: CustomNavigationIconSlot) {
+        setCustomNavigationIcon(slot, null)
+    }
+
+    fun setCustomNavigationIconCrop(slot: CustomNavigationIconSlot, crop: CustomWallpaperCrop) {
+        repo.setCustomNavigationIconCrop(slot, crop)
+        _uiState.update { it.copy(customNavigationIcons = repo.customNavigationIcons) }
+    }
+
+    fun setDeltaColorVariant(variant: String) {
+        val sanitized = DeltaColorVariant.fromValue(variant).value
+        repo.deltaColorVariant = sanitized
+        _uiState.update { it.copy(deltaColorVariant = sanitized) }
     }
 
     fun setCustomStartupAnimationUri(uri: String?) {
@@ -590,5 +750,62 @@ class SettingsViewModel(
                 _uiState.update { it.copy(isDefaultUmountModules = enabled) }
             }
         }
+    }
+
+    fun setBuiltinMountEnabled(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (repo.setBuiltinMountEnabled(enabled)) {
+                refreshBuiltinMountStatus()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(ksuApp, R.string.settings_builtin_mount_reboot_required, Toast.LENGTH_LONG).show()
+                }
+            } else {
+                refreshBuiltinMountStatus()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(ksuApp, R.string.settings_builtin_mount_failed, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    fun setBuiltinMountDefaultMode(index: Int) {
+        val mode = if (index == 1) BUILTIN_MOUNT_MODE_MAGIC else BUILTIN_MOUNT_MODE_OVERLAY
+        viewModelScope.launch(Dispatchers.IO) {
+            if (repo.setBuiltinMountDefaultMode(mode)) {
+                refreshBuiltinMountStatus()
+            } else {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(ksuApp, R.string.settings_builtin_mount_failed, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    fun setEpkesuHideEnabled(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (repo.setEpkesuHideEnabled(enabled)) {
+                _uiState.update { it.copy(isEpkesuHideEnabled = enabled) }
+            } else {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(ksuApp, R.string.settings_epkesu_hide_failed, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshBuiltinMountStatus() {
+        val status = repo.getBuiltinMountStatus()
+        _uiState.update {
+            it.copy(
+                isBuiltinMountEnabled = status.enabled,
+                builtinMountDefaultMode = status.defaultMode,
+                isBuiltinMountWebUiAvailable = status.webUi,
+                builtinMountConflict = status.conflict,
+            )
+        }
+    }
+
+    private companion object {
+        const val TAG = "SettingsViewModel"
     }
 }

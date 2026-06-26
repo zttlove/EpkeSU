@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -26,29 +27,44 @@ import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.R
+import me.weishu.kernelsu.ui.component.CustomVideoBackground
 import me.weishu.kernelsu.ui.theme.isInDarkTheme
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_CROP
 import me.weishu.kernelsu.ui.util.loadCustomImageBitmap
 import me.weishu.kernelsu.ui.util.persistCustomImageReference
+import me.weishu.kernelsu.ui.util.releasePersistableVideoBackgroundReadPermission
 import me.weishu.kernelsu.ui.util.releaseCustomImageReference
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperCrop
 import me.weishu.kernelsu.ui.util.takePersistableImageReadPermission
+import me.weishu.kernelsu.ui.util.takePersistableVideoBackgroundReadPermission
 
 internal const val HOME_METRIC_CARD_WALLPAPER_ASPECT_RATIO = 1.72f
 
+private const val HOME_LKM_CARD_WALLPAPER_ASPECT_RATIO = 1.08f
 private const val HOME_METRIC_CARD_WALLPAPER_MAX_SIDE = 1200
 
 internal enum class HomeMetricCardWallpaperTarget(
     private val keyPrefix: String,
+    @StringRes val titleRes: Int,
     val aspectRatio: Float,
     @StringRes val pickLabelRes: Int,
     @StringRes val cropLabelRes: Int,
     @StringRes val previewLabelRes: Int,
     @StringRes val clearLabelRes: Int,
 ) {
+    Lkm(
+        keyPrefix = "home_lkm_card_wallpaper",
+        titleRes = R.string.home_card_main,
+        aspectRatio = HOME_LKM_CARD_WALLPAPER_ASPECT_RATIO,
+        pickLabelRes = R.string.home_lkm_wallpaper_pick,
+        cropLabelRes = R.string.home_lkm_wallpaper_crop,
+        previewLabelRes = R.string.home_lkm_wallpaper_preview,
+        clearLabelRes = R.string.home_lkm_wallpaper_clear,
+    ),
     Superuser(
         keyPrefix = "home_superuser_card_wallpaper",
+        titleRes = R.string.home_card_superuser,
         aspectRatio = HOME_METRIC_CARD_WALLPAPER_ASPECT_RATIO,
         pickLabelRes = R.string.home_superuser_wallpaper_pick,
         cropLabelRes = R.string.home_superuser_wallpaper_crop,
@@ -57,6 +73,7 @@ internal enum class HomeMetricCardWallpaperTarget(
     ),
     Module(
         keyPrefix = "home_module_card_wallpaper",
+        titleRes = R.string.home_card_module,
         aspectRatio = HOME_METRIC_CARD_WALLPAPER_ASPECT_RATIO,
         pickLabelRes = R.string.home_module_wallpaper_pick,
         cropLabelRes = R.string.home_module_wallpaper_crop,
@@ -65,6 +82,7 @@ internal enum class HomeMetricCardWallpaperTarget(
     ),
     StatusMonitor(
         keyPrefix = "home_status_monitor_wallpaper",
+        titleRes = R.string.home_card_status_monitor,
         aspectRatio = 2.72f,
         pickLabelRes = R.string.home_status_monitor_wallpaper_pick,
         cropLabelRes = R.string.home_status_monitor_wallpaper_crop,
@@ -73,6 +91,7 @@ internal enum class HomeMetricCardWallpaperTarget(
     ),
     SystemInfo(
         keyPrefix = "home_system_info_wallpaper",
+        titleRes = R.string.home_card_system_info,
         aspectRatio = 1.36f,
         pickLabelRes = R.string.home_system_info_wallpaper_pick,
         cropLabelRes = R.string.home_system_info_wallpaper_crop,
@@ -81,21 +100,31 @@ internal enum class HomeMetricCardWallpaperTarget(
     );
 
     val uriKey: String get() = "${keyPrefix}_uri"
+    val videoUriKey: String get() = "${keyPrefix}_video_uri"
     val cropLeftKey: String get() = "${keyPrefix}_crop_left"
     val cropTopKey: String get() = "${keyPrefix}_crop_top"
     val cropRightKey: String get() = "${keyPrefix}_crop_right"
     val cropBottomKey: String get() = "${keyPrefix}_crop_bottom"
+
+    val preferenceKeys: Set<String>
+        get() = setOf(uriKey, videoUriKey, cropLeftKey, cropTopKey, cropRightKey, cropBottomKey)
 }
 
 internal data class HomeMetricCardWallpaperState(
     val uriString: String?,
+    val videoUriString: String?,
     val crop: CustomWallpaperCrop,
     val onPickWallpaper: () -> Unit,
+    val onPickVideoWallpaper: () -> Unit,
     val onCropChange: (CustomWallpaperCrop) -> Unit,
     val onClearWallpaper: () -> Unit,
 ) {
     val hasSelectedWallpaper: Boolean
         get() = !uriString.isNullOrBlank()
+    val hasSelectedVideoWallpaper: Boolean
+        get() = !videoUriString.isNullOrBlank()
+    val hasSelectedAnyWallpaper: Boolean
+        get() = hasSelectedWallpaper || hasSelectedVideoWallpaper
 }
 
 @Composable
@@ -111,8 +140,23 @@ internal fun rememberHomeMetricCardWallpaperState(
     var uriString by remember(target) {
         mutableStateOf(prefs.getString(target.uriKey, null))
     }
+    var videoUriString by remember(target) {
+        mutableStateOf(prefs.getString(target.videoUriKey, null))
+    }
     var crop by remember(target) {
         mutableStateOf(readHomeMetricCardWallpaperCrop(prefs, target))
+    }
+    DisposableEffect(prefs, target) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
+            if (key == null || key !in target.preferenceKeys) return@OnSharedPreferenceChangeListener
+            uriString = preferences.getString(target.uriKey, null)
+            videoUriString = preferences.getString(target.videoUriKey, null)
+            crop = readHomeMetricCardWallpaperCrop(preferences, target)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
     }
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -125,21 +169,50 @@ internal fun rememberHomeMetricCardWallpaperState(
         if (previousUriString != nextUriString) {
             releaseCustomImageReference(context, previousUriString)
         }
+        releasePersistableVideoBackgroundReadPermission(context, videoUriString)
         uriString = nextUriString
+        videoUriString = null
         crop = defaultCrop
         prefs.edit(commit = true) {
             putString(target.uriKey, nextUriString)
+            remove(target.videoUriKey)
             putHomeMetricCardWallpaperCrop(target, defaultCrop)
         }
         currentOnWallpaperSelected()
     }
+    val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val nextUriString = uri.toString()
+        val previousUriString = uriString
+        val previousVideoUriString = videoUriString
+        takePersistableVideoBackgroundReadPermission(context, uri)
+        releaseCustomImageReference(context, previousUriString)
+        if (previousVideoUriString != nextUriString) {
+            releasePersistableVideoBackgroundReadPermission(context, previousVideoUriString)
+        }
+        uriString = null
+        videoUriString = nextUriString
+        crop = DEFAULT_CUSTOM_WALLPAPER_CROP
+        prefs.edit(commit = true) {
+            remove(target.uriKey)
+            putHomeMetricCardWallpaperCrop(target, DEFAULT_CUSTOM_WALLPAPER_CROP)
+            putString(target.videoUriKey, nextUriString)
+        }
+        currentOnWallpaperSelected()
+    }
 
-    return remember(target, uriString, crop, launcher, prefs, context) {
+    return remember(target, uriString, videoUriString, crop, launcher, videoLauncher, prefs, context) {
         HomeMetricCardWallpaperState(
             uriString = uriString,
+            videoUriString = videoUriString,
             crop = crop,
             onPickWallpaper = {
                 launcher.launch(arrayOf("image/*"))
+            },
+            onPickVideoWallpaper = {
+                videoLauncher.launch(arrayOf("video/*"))
             },
             onCropChange = { nextCrop ->
                 val safeCrop = sanitizeCustomWallpaperCrop(nextCrop)
@@ -150,10 +223,13 @@ internal fun rememberHomeMetricCardWallpaperState(
             },
             onClearWallpaper = {
                 releaseCustomImageReference(context, uriString)
+                releasePersistableVideoBackgroundReadPermission(context, videoUriString)
                 uriString = null
+                videoUriString = null
                 crop = DEFAULT_CUSTOM_WALLPAPER_CROP
                 prefs.edit(commit = true) {
                     remove(target.uriKey)
+                    remove(target.videoUriKey)
                     removeHomeMetricCardWallpaperCrop(target)
                 }
             },
@@ -185,16 +261,30 @@ internal fun rememberHomeMetricCardWallpaperBitmap(
 }
 
 @Composable
-internal fun BoxScope.HomeMetricCardWallpaperBackground(bitmap: Bitmap?) {
-    if (bitmap == null) return
+internal fun BoxScope.HomeMetricCardWallpaperBackground(
+    bitmap: Bitmap?,
+    videoUriString: String? = null,
+    videoCrop: CustomWallpaperCrop = DEFAULT_CUSTOM_WALLPAPER_CROP,
+) {
+    if (bitmap == null && videoUriString.isNullOrBlank()) return
 
-    val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
-    Image(
-        modifier = Modifier.matchParentSize(),
-        bitmap = imageBitmap,
-        contentDescription = null,
-        contentScale = ContentScale.Crop
-    )
+    if (!videoUriString.isNullOrBlank()) {
+        CustomVideoBackground(
+            uriString = videoUriString,
+            drawOverlay = false,
+            crop = videoCrop,
+            touchPassthrough = true,
+            modifier = Modifier.matchParentSize(),
+        )
+    } else if (bitmap != null) {
+        val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+        Image(
+            modifier = Modifier.matchParentSize(),
+            bitmap = imageBitmap,
+            contentDescription = null,
+            contentScale = ContentScale.Crop
+        )
+    }
     Box(
         modifier = Modifier
             .matchParentSize()

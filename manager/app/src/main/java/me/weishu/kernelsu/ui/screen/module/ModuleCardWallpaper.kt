@@ -3,6 +3,7 @@ package me.weishu.kernelsu.ui.screen.module
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -22,7 +23,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -40,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.R
 import me.weishu.kernelsu.ui.LocalUiMode
@@ -47,11 +51,16 @@ import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.theme.isInDarkTheme
 import me.weishu.kernelsu.ui.util.CustomWallpaperCrop
 import me.weishu.kernelsu.ui.util.DEFAULT_CUSTOM_WALLPAPER_CROP
+import me.weishu.kernelsu.ui.util.ThemeStoreImageSlot
 import me.weishu.kernelsu.ui.util.loadCustomImageBitmap
 import me.weishu.kernelsu.ui.util.persistCustomImageReference
 import me.weishu.kernelsu.ui.util.releaseCustomImageReference
 import me.weishu.kernelsu.ui.util.sanitizeCustomWallpaperCrop
+import me.weishu.kernelsu.ui.util.setThemeStoreImageSlot
+import me.weishu.kernelsu.ui.util.setThemeStoreImageSlotCrop
 import me.weishu.kernelsu.ui.util.takePersistableImageReadPermission
+import org.json.JSONArray
+import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
@@ -59,17 +68,35 @@ import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
 internal const val MODULE_CARD_WALLPAPER_ASPECT_RATIO = 1.72f
 
 private const val MODULE_CARD_WALLPAPER_MAX_SIDE = 1200
+private const val MODULE_CARD_WALLPAPER_CAROUSEL_INTERVAL_MILLIS = 5_000L
 private const val MODULE_CARD_WALLPAPER_KEY_PREFIX = "module_card_wallpaper"
 
-internal data class ModuleCardWallpaperState(
-    val uriString: String?,
+internal data class ModuleCardWallpaperEntry(
+    val uriString: String,
     val crop: CustomWallpaperCrop,
+)
+
+internal data class ModuleCardWallpaperState(
+    val entries: List<ModuleCardWallpaperEntry>,
+    val selectedIndex: Int,
+    val carouselEnabled: Boolean,
     val onPickWallpaper: () -> Unit,
+    val onSelectWallpaper: (Int) -> Unit,
+    val onToggleCarousel: () -> Unit,
     val onCropChange: (CustomWallpaperCrop) -> Unit,
     val onClearWallpaper: () -> Unit,
+    val onSyncThemeStore: () -> Boolean,
 ) {
+    val currentEntry: ModuleCardWallpaperEntry?
+        get() = entries.getOrNull(selectedIndex.coerceIn(0, entries.lastIndex.coerceAtLeast(0)))
+    val uriString: String?
+        get() = currentEntry?.uriString
+    val crop: CustomWallpaperCrop
+        get() = currentEntry?.crop ?: DEFAULT_CUSTOM_WALLPAPER_CROP
     val hasSelectedWallpaper: Boolean
-        get() = !uriString.isNullOrBlank()
+        get() = entries.isNotEmpty()
+    val canPlayCarousel: Boolean
+        get() = entries.size > 1
 }
 
 @Composable
@@ -82,58 +109,109 @@ internal fun rememberModuleCardWallpaperState(
     val prefs = remember(context) {
         context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     }
-    var uriString by remember(moduleId) {
-        mutableStateOf(prefs.getString(moduleWallpaperUriKey(moduleId), null))
+    var entries by remember(moduleId) {
+        mutableStateOf(readModuleCardWallpaperEntries(prefs, moduleId))
     }
-    var crop by remember(moduleId) {
-        mutableStateOf(readModuleCardWallpaperCrop(prefs, moduleId))
+    var selectedIndex by remember(moduleId) {
+        mutableIntStateOf(0)
+    }
+    var carouselEnabled by remember(moduleId) {
+        mutableStateOf(prefs.getBoolean(moduleWallpaperCarouselKey(moduleId), false) && entries.size > 1)
     }
     val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        val uriKey = moduleWallpaperUriKey(moduleId)
-        val nextUriString = persistCustomImageReference(context, uri, uriKey)
-            ?: uri.toString().also { takePersistableImageReadPermission(context, uri) }
-        val previousUriString = uriString
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val uniqueUris = uris.distinctBy { it.toString() }
         val defaultCrop = DEFAULT_CUSTOM_WALLPAPER_CROP
-        if (previousUriString != nextUriString) {
-            releaseCustomImageReference(context, previousUriString)
+        val nextEntries = uniqueUris.mapIndexed { index, uri ->
+            val storageKey = moduleWallpaperEntryStorageKey(moduleId, index)
+            val nextUriString = persistCustomImageReference(context, uri, storageKey)
+                ?: uri.toString().also { takePersistableImageReadPermission(context, uri) }
+            ModuleCardWallpaperEntry(nextUriString, defaultCrop)
         }
-        uriString = nextUriString
-        crop = defaultCrop
+        entries.forEach { releaseCustomImageReference(context, it.uriString) }
+        entries = nextEntries
+        selectedIndex = 0
+        carouselEnabled = nextEntries.size > 1
         prefs.edit(commit = true) {
-            putString(uriKey, nextUriString)
-            putModuleCardWallpaperCrop(moduleId, defaultCrop)
+            putModuleCardWallpaperEntries(moduleId, nextEntries)
+            putBoolean(moduleWallpaperCarouselKey(moduleId), carouselEnabled)
         }
         currentOnWallpaperSelected()
     }
 
-    return remember(moduleId, uriString, crop, launcher, prefs, context) {
+    return remember(moduleId, entries, selectedIndex, carouselEnabled, launcher, prefs, context) {
         ModuleCardWallpaperState(
-            uriString = uriString,
-            crop = crop,
+            entries = entries,
+            selectedIndex = selectedIndex,
+            carouselEnabled = carouselEnabled && entries.size > 1,
             onPickWallpaper = {
                 launcher.launch(arrayOf("image/*"))
             },
+            onSelectWallpaper = { nextIndex ->
+                if (entries.isNotEmpty()) {
+                    selectedIndex = nextIndex.coerceIn(0, entries.lastIndex)
+                }
+            },
+            onToggleCarousel = {
+                if (entries.size > 1) {
+                    carouselEnabled = !carouselEnabled
+                    prefs.edit(commit = true) {
+                        putBoolean(moduleWallpaperCarouselKey(moduleId), carouselEnabled)
+                    }
+                }
+            },
             onCropChange = { nextCrop ->
                 val safeCrop = sanitizeCustomWallpaperCrop(nextCrop)
-                crop = safeCrop
+                val safeIndex = selectedIndex.coerceIn(0, entries.lastIndex.coerceAtLeast(0))
+                val nextEntries = entries.mapIndexed { index, entry ->
+                    if (index == safeIndex) entry.copy(crop = safeCrop) else entry
+                }
+                entries = nextEntries
                 prefs.edit(commit = true) {
-                    putModuleCardWallpaperCrop(moduleId, safeCrop)
+                    putModuleCardWallpaperEntries(moduleId, nextEntries)
                 }
             },
             onClearWallpaper = {
-                releaseCustomImageReference(context, uriString)
-                uriString = null
-                crop = DEFAULT_CUSTOM_WALLPAPER_CROP
+                entries.forEach { releaseCustomImageReference(context, it.uriString) }
+                entries = emptyList()
+                selectedIndex = 0
+                carouselEnabled = false
                 prefs.edit(commit = true) {
-                    remove(moduleWallpaperUriKey(moduleId))
-                    removeModuleCardWallpaperCrop(moduleId)
+                    removeModuleCardWallpaperEntries(moduleId)
+                    remove(moduleWallpaperCarouselKey(moduleId))
                 }
+            },
+            onSyncThemeStore = {
+                syncModuleWallpaperToThemeStore(context, entries.getOrNull(selectedIndex))
             },
         )
     }
+}
+
+@Composable
+internal fun rememberModuleCardWallpaperFrame(
+    state: ModuleCardWallpaperState,
+    paused: Boolean,
+): ModuleCardWallpaperEntry? {
+    LaunchedEffect(paused, state.carouselEnabled, state.entries.size, state.selectedIndex) {
+        if (!paused && state.carouselEnabled && state.entries.size > 1) {
+            delay(MODULE_CARD_WALLPAPER_CAROUSEL_INTERVAL_MILLIS)
+            state.onSelectWallpaper((state.selectedIndex + 1) % state.entries.size)
+        }
+    }
+    return state.currentEntry
+}
+
+@Composable
+internal fun rememberModuleCardWallpaperBitmap(
+    entry: ModuleCardWallpaperEntry?,
+): Bitmap? {
+    return rememberModuleCardWallpaperBitmap(
+        uriString = entry?.uriString,
+        crop = entry?.crop ?: DEFAULT_CUSTOM_WALLPAPER_CROP,
+    )
 }
 
 @Composable
@@ -316,6 +394,70 @@ private fun readModuleCardWallpaperCrop(
     )
 }
 
+private fun readModuleCardWallpaperEntries(
+    prefs: SharedPreferences,
+    moduleId: String,
+): List<ModuleCardWallpaperEntry> {
+    val entriesJson = prefs.getString(moduleWallpaperEntriesKey(moduleId), null)
+    if (!entriesJson.isNullOrBlank()) {
+        val parsedEntries = runCatching {
+            val array = JSONArray(entriesJson)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val uriString = item.optString("uri").takeIf { it.isNotBlank() } ?: continue
+                    add(
+                        ModuleCardWallpaperEntry(
+                            uriString = uriString,
+                            crop = item.optCrop(DEFAULT_CUSTOM_WALLPAPER_CROP),
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+        if (parsedEntries.isNotEmpty()) return parsedEntries
+    }
+
+    val legacyUriString = prefs.getString(moduleWallpaperUriKey(moduleId), null)
+        ?.takeIf { it.isNotBlank() }
+        ?: return emptyList()
+    return listOf(
+        ModuleCardWallpaperEntry(
+            uriString = legacyUriString,
+            crop = readModuleCardWallpaperCrop(prefs, moduleId),
+        )
+    )
+}
+
+private fun SharedPreferences.Editor.putModuleCardWallpaperEntries(
+    moduleId: String,
+    entries: List<ModuleCardWallpaperEntry>,
+) {
+    if (entries.isEmpty()) {
+        removeModuleCardWallpaperEntries(moduleId)
+        return
+    }
+
+    val array = JSONArray()
+    entries.forEach { entry ->
+        val safeCrop = sanitizeCustomWallpaperCrop(entry.crop)
+        array.put(
+            JSONObject()
+                .put("uri", entry.uriString)
+                .put("crop", safeCrop.toJson())
+        )
+    }
+    putString(moduleWallpaperEntriesKey(moduleId), array.toString())
+    putString(moduleWallpaperUriKey(moduleId), entries.first().uriString)
+    putModuleCardWallpaperCrop(moduleId, entries.first().crop)
+}
+
+private fun SharedPreferences.Editor.removeModuleCardWallpaperEntries(moduleId: String) {
+    remove(moduleWallpaperEntriesKey(moduleId))
+    remove(moduleWallpaperUriKey(moduleId))
+    removeModuleCardWallpaperCrop(moduleId)
+}
+
 private fun SharedPreferences.Editor.putModuleCardWallpaperCrop(
     moduleId: String,
     crop: CustomWallpaperCrop,
@@ -334,8 +476,57 @@ private fun SharedPreferences.Editor.removeModuleCardWallpaperCrop(moduleId: Str
     remove(moduleWallpaperCropBottomKey(moduleId))
 }
 
+private fun syncModuleWallpaperToThemeStore(
+    context: Context,
+    entry: ModuleCardWallpaperEntry?,
+): Boolean {
+    entry ?: return false
+    return runCatching {
+        val copiedUriString = persistCustomImageReference(
+            context = context,
+            sourceUri = Uri.parse(entry.uriString),
+            storageKey = ThemeStoreImageSlot.Module.uriKey,
+        ) ?: return false
+        setThemeStoreImageSlot(context, ThemeStoreImageSlot.Module, copiedUriString)
+        setThemeStoreImageSlotCrop(context, ThemeStoreImageSlot.Module, entry.crop)
+        true
+    }.getOrDefault(false)
+}
+
+private fun CustomWallpaperCrop.toJson(): JSONObject {
+    return JSONObject()
+        .put("left", left)
+        .put("top", top)
+        .put("right", right)
+        .put("bottom", bottom)
+}
+
+private fun JSONObject.optCrop(fallback: CustomWallpaperCrop): CustomWallpaperCrop {
+    val cropJson = optJSONObject("crop") ?: return fallback
+    return sanitizeCustomWallpaperCrop(
+        CustomWallpaperCrop(
+            left = cropJson.optDouble("left", fallback.left.toDouble()).toFloat(),
+            top = cropJson.optDouble("top", fallback.top.toDouble()).toFloat(),
+            right = cropJson.optDouble("right", fallback.right.toDouble()).toFloat(),
+            bottom = cropJson.optDouble("bottom", fallback.bottom.toDouble()).toFloat(),
+        )
+    )
+}
+
 private fun moduleWallpaperUriKey(moduleId: String): String {
     return "${MODULE_CARD_WALLPAPER_KEY_PREFIX}_${moduleId}_uri"
+}
+
+private fun moduleWallpaperEntryStorageKey(moduleId: String, index: Int): String {
+    return "${MODULE_CARD_WALLPAPER_KEY_PREFIX}_${moduleId}_entry_${index}_uri"
+}
+
+private fun moduleWallpaperEntriesKey(moduleId: String): String {
+    return "${MODULE_CARD_WALLPAPER_KEY_PREFIX}_${moduleId}_entries"
+}
+
+private fun moduleWallpaperCarouselKey(moduleId: String): String {
+    return "${MODULE_CARD_WALLPAPER_KEY_PREFIX}_${moduleId}_carousel"
 }
 
 private fun moduleWallpaperCropLeftKey(moduleId: String): String {

@@ -111,7 +111,11 @@ private fun AlphaStatusCard(
                         .weight(1f)
                         .padding(horizontal = 12.dp),
                 )
-                AlphaInstallAction(onClick = actions.onInstallClick)
+                AlphaInstallAction(
+                    installed = state.ksuVersion != null,
+                    onInstallClick = actions.onInstallClick,
+                    onJailbreakClick = actions.onJailbreakClick,
+                )
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -334,12 +338,28 @@ private fun AlphaIconLink(
 }
 
 @Composable
-private fun AlphaInstallAction(onClick: () -> Unit) {
-    AlphaOutlinedButton(
-        text = stringResource(R.string.module_install),
-        icon = Icons.Rounded.InstallMobile,
-        onClick = onClick,
-    )
+private fun AlphaInstallAction(
+    installed: Boolean,
+    onInstallClick: () -> Unit,
+    onJailbreakClick: () -> Unit,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        AlphaOutlinedButton(
+            text = stringResource(R.string.module_install),
+            icon = Icons.Rounded.InstallMobile,
+            onClick = onInstallClick,
+        )
+        if (!installed) {
+            AlphaButton(
+                text = stringResource(R.string.home_jailbreak),
+                icon = Icons.Rounded.WarningAmber,
+                onClick = onJailbreakClick,
+            )
+        }
+    }
 }
 
 @Composable

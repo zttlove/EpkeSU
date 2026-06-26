@@ -19,6 +19,7 @@ data class HomeUiState(
     val isSafeMode: Boolean,
     val isLateLoadMode: Boolean,
     val currentManagerVersionCode: Long,
+    val showVersionMismatchWarningSetting: Boolean,
     val superuserCount: Int,
     val moduleCount: Int,
     val systemInfo: SystemInfo,
@@ -41,6 +42,9 @@ data class HomeUiState(
     val showRootWarning: Boolean
         get() = ksuVersion != null && !isRootAvailable
 
+    val showManagerWarning: Boolean
+        get() = ksuVersion != null && !isManager
+
     val showManagerPrBuildWarning: Boolean
         get() = isManager && isManagerPrBuild
 
@@ -48,7 +52,9 @@ data class HomeUiState(
         get() = isManager && !isManagerPrBuild && isKernelPrBuild
 
     val showVersionMismatchWarning: Boolean
-        get() = ksuVersion != null && currentManagerVersionCode < ksuVersion.toLong()
+        get() = showVersionMismatchWarningSetting &&
+                ksuVersion != null &&
+                currentManagerVersionCode < ksuVersion.toLong()
 }
 
 @Immutable

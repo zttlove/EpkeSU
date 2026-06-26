@@ -123,6 +123,21 @@ enum class ThemePreset(
         pageScale = 1.0f,
     ),
 
+    DELTA(
+        value = "delta",
+        titleRes = me.weishu.kernelsu.R.string.theme_preset_delta,
+        summaryRes = me.weishu.kernelsu.R.string.theme_preset_delta_summary,
+        colorMode = ColorMode.LIGHT,
+        keyColor = 0xFF2F8A3B.toInt(),
+        paletteStyle = PaletteStyle.Fidelity,
+        colorSpec = ColorSpec.SpecVersion.SPEC_2025,
+        miuixMonet = false,
+        enableBlur = false,
+        enableFloatingBottomBar = true,
+        enableFloatingBottomBarBlur = false,
+        pageScale = 1.0f,
+    ),
+
     GEEK_DARK(
         value = "geek_dark",
         titleRes = me.weishu.kernelsu.R.string.theme_preset_geek_dark,
@@ -150,6 +165,7 @@ enum class ThemePreset(
             CUSTOM -> currentUiMode
             SKROOTPRO -> InterfaceStyle.Skrootpro.value
             ALPHA -> InterfaceStyle.Alpha.value
+            DELTA -> InterfaceStyle.Delta.value
             LIQUID_GLASS -> InterfaceStyle.LiquidGlass.value
             PREMIUM_GLOSS -> InterfaceStyle.Miuix.value
             GEEK_DARK -> InterfaceStyle.Material.value
