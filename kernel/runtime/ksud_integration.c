@@ -29,6 +29,23 @@
 #include "hook/syscall_hook.h"
 #include "hook/syscall_event_bridge.h"
 
+#include <asm/uaccess.h>
+
+static inline long strncpy_from_user_nofault(char *dst, const char __user *src, long count)
+{
+    return strncpy_from_user(dst, src, count);
+}
+
+static inline unsigned long copy_from_user_nofault(void *to, const void __user *from, unsigned long n)
+{
+    return copy_from_user(to, from, n);
+}
+
+static inline unsigned long copy_to_user_nofault(void __user *to, const void *from, unsigned long n)
+{
+    return copy_to_user(to, from, n);
+}
+
 // clang-format off
 static const char KERNEL_SU_RC[] =
     "\n"
