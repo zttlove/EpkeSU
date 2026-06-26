@@ -24,6 +24,7 @@
 #include "hook/syscall_hook.h"
 #include "sulog/event.h"
 #include "ksu.h"
+#include <asm/uaccess.h>
 
 
 #define SU_PATH "/system/bin/su"
@@ -100,7 +101,12 @@ long ksu_handle_faccessat_sucompat(int orig_nr, struct pt_regs *regs)
 
     char path[sizeof(su_path) + 1];
     memset(path, 0, sizeof(path));
-    strncpy_from_user_nofault(path, *filename_user, sizeof(path));
+    long ret;
+    ret = strncpy_from_user(path, *filename_user, sizeof(path) - 1);
+    if (ret < 0)
+    return ret;
+    path[sizeof(path)-1] = '\0';
+
 
     if (unlikely(!memcmp(path, su_path, sizeof(su_path)))) {
         old_cred = override_creds(ksu_cred);
@@ -135,7 +141,11 @@ long ksu_handle_stat_sucompat(int orig_nr, struct pt_regs *regs)
 
     char path[sizeof(su_path) + 1];
     memset(path, 0, sizeof(path));
-    strncpy_from_user_nofault(path, *filename_user, sizeof(path));
+    long ret;
+    ret = strncpy_from_user(path, *filename_user, sizeof(path) - 1);
+      if (ret < 0)
+        return ret;
+        path[sizeof(path)-1] = '\0';
 
     if (unlikely(!memcmp(path, su_path, sizeof(su_path)))) {
         old_cred = override_creds(ksu_cred);
