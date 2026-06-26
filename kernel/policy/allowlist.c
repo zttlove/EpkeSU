@@ -18,6 +18,9 @@
 #include <linux/kref.h>
 
 #include <linux/sched.h>
+#include <linux/task_work.h>
+#include <linux/sched.h>
+#include <linux/sched/task.h>
 
 #include "klog.h" // IWYU pragma: keep
 #include "ksu.h"
