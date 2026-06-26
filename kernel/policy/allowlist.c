@@ -17,6 +17,8 @@
 #include <linux/hashtable.h>
 #include <linux/kref.h>
 
+#include <linux/sched.h>
+
 #include "klog.h" // IWYU pragma: keep
 #include "ksu.h"
 #include "runtime/ksud_boot.h"
